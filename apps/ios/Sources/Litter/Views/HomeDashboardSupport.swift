@@ -29,6 +29,7 @@ struct HomeDashboardServer: Identifiable, Equatable {
     let sourceLabel: String
     let statusLabel: String
     let statusColor: Color
+    let workspaceRoot: String?
     let projectName: String?
     let latestThreadTitle: String?
     let launchSession: DexCompanionBrowserSession?
@@ -57,6 +58,7 @@ struct HomeDashboardServer: Identifiable, Equatable {
             lhs.health == rhs.health &&
             lhs.sourceLabel == rhs.sourceLabel &&
             lhs.statusLabel == rhs.statusLabel &&
+            lhs.workspaceRoot == rhs.workspaceRoot &&
             lhs.projectName == rhs.projectName &&
             lhs.latestThreadTitle == rhs.latestThreadTitle &&
             lhs.launchSession == rhs.launchSession
@@ -123,6 +125,7 @@ enum HomeDashboardSupport {
                     sourceLabel: server.connectionModeLabel,
                     statusLabel: server.statusLabel,
                     statusColor: server.statusColor,
+                    workspaceRoot: primarySession?.cwd,
                     projectName: projectName,
                     latestThreadTitle: latestThreadTitle,
                     launchSession: nil

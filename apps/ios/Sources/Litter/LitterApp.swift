@@ -727,8 +727,10 @@ private struct HomeNavigationView: View {
 
     private func handleNewSessionTap() {
         if let defaultServerId = defaultNewSessionServerId(preferredServerId: appState.sessionsSelectedServerFilterId) {
-            if let launchSession = DexCompanionRouting.browserSession(forServerId: defaultServerId) {
-                openDexCompanion(launchSession)
+            if DexCompanionRouting.environmentId(fromServerId: defaultServerId) != nil,
+               let server = homeDashboardModel.connectedServers.first(where: { $0.id == defaultServerId }) {
+                let cwd = server.workspaceRoot ?? ""
+                Task { await startNewSession(serverId: defaultServerId, cwd: cwd) }
                 return
             }
             // For local on-device server, skip directory picker and use /home/codex.
@@ -973,10 +975,6 @@ private struct HomeNavigationView: View {
     }
 
     private func openConversation(_ key: ThreadKey) {
-        if let session = DexCompanionRouting.browserSession(forThreadKey: key) {
-            openDexCompanion(session)
-            return
-        }
         hasSeededInitialConversationRoute = true
         appState.showModelSelector = false
         guard navigationPath.last != .conversation(key) else { return }
@@ -1035,10 +1033,6 @@ private struct HomeNavigationView: View {
     }
 
     private func showSessions(for serverId: String) {
-        if let session = DexCompanionRouting.browserSession(forServerId: serverId) {
-            openDexCompanion(session)
-            return
-        }
         appState.sessionsSelectedServerFilterId = serverId
         appState.sessionsShowOnlyForks = false
         appState.showModelSelector = false

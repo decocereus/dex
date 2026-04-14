@@ -63,6 +63,7 @@ enum DexCompanionDashboardIndex {
                         sourceLabel: browserSession.serverLabel,
                         statusLabel: "Connected",
                         statusColor: LitterTheme.accent,
+                        workspaceRoot: project.workspaceRoot,
                         projectName: project.title,
                         latestThreadTitle: latestThread?.title,
                         launchSession: serverLaunchSession

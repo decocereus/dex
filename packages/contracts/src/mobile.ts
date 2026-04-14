@@ -2,11 +2,7 @@ import { Effect, Schema } from "effect";
 
 import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
 import { ExecutionEnvironmentDescriptor, ScopedThreadRef } from "./environment";
-import {
-  OrchestrationThread,
-  ProviderInteractionMode,
-  RuntimeMode,
-} from "./orchestration";
+import { OrchestrationThread, ProviderInteractionMode, RuntimeMode } from "./orchestration";
 
 export const CompanionNativeProjectShell = Schema.Struct({
   id: ProjectId,
