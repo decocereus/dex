@@ -30,53 +30,58 @@ enum DexCompanionDashboardIndex {
                 bearerToken: browserSession.bearerToken
             )
 
-            guard let shellSnapshot = try? await client.fetchShellSnapshot() else {
+            guard let shellSnapshot = try? await client.fetchNativeShellSnapshot() else {
                 continue
             }
 
-            let serverId = DexCompanionRouting.serverId(for: savedSession.environmentId)
             let host = URL(string: browserSession.httpBaseUrl)?.host ?? "dex"
             let port = UInt16(URL(string: browserSession.httpBaseUrl)?.port ?? 443)
-            let sortedThreads = shellSnapshot.threads.sorted {
+            let sortedThreads = shellSnapshot.sessionSummaries.sorted {
                 parseDate($0.updatedAt) > parseDate($1.updatedAt)
             }
-            let latestThread = sortedThreads.first
-            let latestProject = latestThread.flatMap { thread in
-                shellSnapshot.projects.first(where: { $0.id == thread.projectId })
-            } ?? shellSnapshot.projects.first
-
-            let serverLaunchSession = browserSession.withNavigation(
-                initialPath: DexCompanionRouting.chatRootPath(),
-                navigationTitle: browserSession.serverLabel
-            )
-            launchSessionByServerId[serverId] = serverLaunchSession
-
-            connectedServers.append(
-                HomeDashboardServer(
-                    id: serverId,
-                    displayName: browserSession.serverLabel,
-                    host: host,
-                    port: port,
-                    isLocal: false,
-                    hasIpc: false,
-                    health: .connected,
-                    sourceLabel: "Dex Companion",
-                    statusLabel: "Connected",
-                    statusColor: LitterTheme.accent,
-                    projectName: latestProject?.title,
-                    latestThreadTitle: latestThread?.title,
-                    launchSession: serverLaunchSession
+            for project in shellSnapshot.projects {
+                let serverId = DexCompanionRouting.serverId(
+                    for: savedSession.environmentId,
+                    projectId: project.id
                 )
-            )
+                let latestThread = sortedThreads.first(where: { $0.projectId == project.id })
+                let serverLaunchSession = browserSession.withNavigation(
+                    initialPath: DexCompanionRouting.chatRootPath(),
+                    navigationTitle: project.title
+                )
+                launchSessionByServerId[serverId] = serverLaunchSession
+
+                connectedServers.append(
+                    HomeDashboardServer(
+                        id: serverId,
+                        displayName: project.title,
+                        host: host,
+                        port: port,
+                        isLocal: false,
+                        hasIpc: false,
+                        health: .connected,
+                        sourceLabel: browserSession.serverLabel,
+                        statusLabel: "Connected",
+                        statusColor: LitterTheme.accent,
+                        projectName: project.title,
+                        latestThreadTitle: latestThread?.title,
+                        launchSession: serverLaunchSession
+                    )
+                )
+            }
 
             let sessionRows = sortedThreads.prefix(limit).compactMap { thread -> HomeDashboardRecentSession? in
                 let project = shellSnapshot.projects.first(where: { $0.id == thread.projectId })
                 let updatedAt = parseDate(thread.updatedAt)
-                let threadKey = ThreadKey(serverId: serverId, threadId: thread.id)
+                let serverId = DexCompanionRouting.serverId(
+                    for: savedSession.environmentId,
+                    projectId: thread.projectId
+                )
+                let threadKey = ThreadKey(serverId: serverId, threadId: thread.threadRef.threadId)
                 let launchSession = browserSession.withNavigation(
                     initialPath: DexCompanionRouting.threadPath(
                         environmentId: browserSession.environmentId,
-                        threadId: thread.id
+                        threadId: thread.threadRef.threadId
                     ),
                     navigationTitle: thread.title
                 )
@@ -85,33 +90,33 @@ enum DexCompanionDashboardIndex {
                 sessionSummaries.append(
                     AppSessionSummary(
                         key: threadKey,
-                        serverDisplayName: browserSession.serverLabel,
+                        serverDisplayName: project?.title ?? browserSession.serverLabel,
                         serverHost: host,
                         title: thread.title,
-                        preview: "",
-                        cwd: project?.workspaceRoot ?? "",
-                        model: "",
-                        modelProvider: "Dex",
-                        parentThreadId: nil,
-                        agentNickname: nil,
-                        agentRole: nil,
-                        agentDisplayLabel: nil,
-                        agentStatus: .unknown,
+                        preview: thread.preview,
+                        cwd: thread.cwd ?? project?.workspaceRoot ?? "",
+                        model: thread.model,
+                        modelProvider: thread.modelProvider,
+                        parentThreadId: thread.parentThreadId,
+                        agentNickname: thread.agentNickname,
+                        agentRole: thread.agentRole,
+                        agentDisplayLabel: thread.agentDisplayLabel,
+                        agentStatus: subagentStatus(from: thread.agentStatus),
                         updatedAt: Int64(updatedAt.timeIntervalSince1970),
-                        hasActiveTurn: isActiveTurnState(thread.latestTurn?.state),
-                        isSubagent: false,
-                        isFork: false
+                        hasActiveTurn: thread.hasActiveTurn,
+                        isSubagent: thread.isSubagent,
+                        isFork: thread.isFork
                     )
                 )
 
                 return HomeDashboardRecentSession(
                     key: threadKey,
                     serverId: serverId,
-                    serverDisplayName: browserSession.serverLabel,
+                    serverDisplayName: project?.title ?? browserSession.serverLabel,
                     sessionTitle: thread.title,
-                    cwd: project?.workspaceRoot ?? "",
+                    cwd: thread.cwd ?? project?.workspaceRoot ?? "",
                     updatedAt: updatedAt,
-                    hasTurnActive: isActiveTurnState(thread.latestTurn?.state),
+                    hasTurnActive: thread.hasActiveTurn,
                     launchSession: launchSession
                 )
             }
@@ -142,13 +147,23 @@ enum DexCompanionDashboardIndex {
         return .distantPast
     }
 
-    private static func isActiveTurnState(_ state: String?) -> Bool {
-        guard let normalized = state?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              !normalized.isEmpty else {
-            return false
+    private static func subagentStatus(from value: String?) -> AppSubagentStatus {
+        switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "pendinginit":
+            return .pendingInit
+        case "running":
+            return .running
+        case "interrupted":
+            return .interrupted
+        case "completed":
+            return .completed
+        case "errored", "error":
+            return .errored
+        case "shutdown", "stopped":
+            return .shutdown
+        default:
+            return .unknown
         }
-
-        return normalized == "pending" || normalized == "in_progress" || normalized == "started"
     }
 
     private static let fractionalDateFormatter: ISO8601DateFormatter = {

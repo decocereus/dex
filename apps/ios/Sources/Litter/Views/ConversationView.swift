@@ -1428,7 +1428,7 @@ private struct ConversationInputBar: View {
         }
         Task {
             do {
-                try await appModel.store.respondToUserInput(
+                try await appModel.respondToUserInput(
                     requestId: pendingUserInputRequest.id,
                     answers: payload
                 )
@@ -1518,12 +1518,9 @@ private struct ConversationInputBar: View {
         guard let activeTurnId else { return }
         Task {
             do {
-                _ = try await appModel.client.interruptTurn(
-                    serverId: snapshot.threadKey.serverId,
-                    params: AppInterruptTurnRequest(
-                        threadId: snapshot.threadKey.threadId,
-                        turnId: activeTurnId
-                    )
+                try await appModel.interruptTurn(
+                    key: snapshot.threadKey,
+                    turnId: activeTurnId
                 )
             } catch {
                 slashErrorMessage = error.localizedDescription
@@ -1878,7 +1875,7 @@ private struct ConversationInputBar: View {
     }
 
     private func loadExperimentalFeatures() async {
-        guard appModel.snapshot?.servers.first(where: { $0.serverId == snapshot.threadKey.serverId })?.canUseTransportActions == true else {
+        guard appModel.serverSnapshot(for: snapshot.threadKey.serverId)?.canUseTransportActions == true else {
             experimentalFeatures = []
             slashErrorMessage = "Not connected to a server"
             return
@@ -1905,7 +1902,7 @@ private struct ConversationInputBar: View {
     }
 
     private func setExperimentalFeature(named featureName: String, enabled: Bool) async {
-        guard appModel.snapshot?.servers.first(where: { $0.serverId == snapshot.threadKey.serverId })?.canUseTransportActions == true else {
+        guard appModel.serverSnapshot(for: snapshot.threadKey.serverId)?.canUseTransportActions == true else {
             slashErrorMessage = "Not connected to a server"
             return
         }
@@ -1956,7 +1953,7 @@ private struct ConversationInputBar: View {
     }
 
     private func loadSkills(forceReload: Bool = false, showErrors: Bool) async {
-        guard appModel.snapshot?.servers.first(where: { $0.serverId == snapshot.threadKey.serverId })?.canUseTransportActions == true else {
+        guard appModel.serverSnapshot(for: snapshot.threadKey.serverId)?.canUseTransportActions == true else {
             skills = []
             mentionSkillPathsByName = [:]
             if showErrors {

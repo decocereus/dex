@@ -119,9 +119,6 @@ final class ConversationScreenModel {
         }
 
         let currentTranscript = transcript
-        let currentPinnedContextItems = pinnedContextItems
-        let currentComposer = composer
-
         let projection = projectConversationItems(from: thread.hydratedConversationItems)
         let items = projection.items
         let threadStatus = conversationStatus(from: thread)
@@ -133,9 +130,7 @@ final class ConversationScreenModel {
             activeTurnId = nil
         }
         let hasTurnInFlight = activeTurnId != nil || thread.info.status == .active
-        let pendingUserInputRequest = appModel.snapshot?.pendingUserInputs.first {
-            $0.serverId == thread.key.serverId && $0.threadId == thread.key.threadId
-        }
+        let pendingUserInputRequest = appModel.pendingUserInputs(for: thread.key).first
         let activeTaskSummary = items.latestActiveTaskSummary
         let composerPrefillRequest = appModel.composerPrefillRequest.flatMap { request in
             request.threadKey == thread.key ? request : nil

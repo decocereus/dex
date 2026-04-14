@@ -11,9 +11,11 @@ import {
   KeybindingRule,
   MessageId,
   OpenError,
+  TurnId,
   TerminalNotRunningError,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationReadModel,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
@@ -124,7 +126,7 @@ const testEnvironmentDescriptor = {
     repositoryIdentity: true,
   },
 };
-const makeDefaultOrchestrationReadModel = () => {
+const makeDefaultOrchestrationReadModel = (): OrchestrationReadModel => {
   const now = new Date().toISOString();
   return {
     snapshotSequence: 0,
@@ -1016,6 +1018,225 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.isTrue(Array.isArray(body.projects));
       assert.isTrue(Array.isArray(body.threads));
       assert.equal(typeof body.snapshotSequence, "number");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves native companion shell snapshots with session summaries", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      const nativeThread = {
+        ...baseReadModel.threads[0]!,
+        branch: "main",
+        worktreePath: "/tmp/default-project",
+        updatedAt: now,
+        latestTurn: {
+          turnId: TurnId.make("turn-default"),
+          state: "running" as const,
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [
+          {
+            id: MessageId.make("message-user-default"),
+            role: "user" as const,
+            text: "Ship the mobile continuation flow.",
+            turnId: TurnId.make("turn-default"),
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        session: {
+          threadId: defaultThreadId,
+          status: "running" as const,
+          providerName: "codex",
+          runtimeMode: "full-access" as const,
+          activeTurnId: TurnId.make("turn-default"),
+          lastError: null,
+          updatedAt: now,
+        },
+      };
+      const nativeReadModel: ReturnType<typeof makeDefaultOrchestrationReadModel> = {
+        ...baseReadModel,
+        snapshotSequence: 1,
+        updatedAt: now,
+        threads: [nativeThread],
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getSnapshot: () => Effect.succeed(nativeReadModel),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const shellUrl = yield* getHttpServerUrl("/api/companion/native/shell");
+      const response = yield* Effect.promise(() =>
+        fetch(shellUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly environment: { readonly environmentId: string; readonly label: string };
+        readonly sessionSummaries: ReadonlyArray<{
+          readonly threadRef: { readonly environmentId: string; readonly threadId: string };
+          readonly title: string;
+          readonly preview: string;
+          readonly model: string;
+          readonly modelProvider: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.environment.environmentId, testEnvironmentDescriptor.environmentId);
+      assert.equal(body.environment.label, testEnvironmentDescriptor.label);
+      assert.isTrue(Array.isArray(body.sessionSummaries));
+      assert.equal(
+        body.sessionSummaries[0]?.threadRef.environmentId,
+        testEnvironmentDescriptor.environmentId,
+      );
+      assert.equal(body.sessionSummaries[0]?.threadRef.threadId, defaultThreadId);
+      assert.equal(body.sessionSummaries[0]?.title, "Default Thread");
+      assert.equal(body.sessionSummaries[0]?.preview, "Ship the mobile continuation flow.");
+      assert.equal(body.sessionSummaries[0]?.model, "gpt-5-codex");
+      assert.equal(body.sessionSummaries[0]?.modelProvider, "codex");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves native companion thread snapshots with pending approvals and user input", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      const nativeThread = {
+        ...baseReadModel.threads[0]!,
+        worktreePath: "/tmp/default-project",
+        updatedAt: now,
+        latestTurn: {
+          turnId: TurnId.make("turn-default"),
+          state: "running" as const,
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [
+          {
+            id: MessageId.make("message-user-default"),
+            role: "user" as const,
+            text: "Ship the mobile continuation flow.",
+            turnId: TurnId.make("turn-default"),
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        session: {
+          threadId: defaultThreadId,
+          status: "running" as const,
+          providerName: "codex",
+          runtimeMode: "full-access" as const,
+          activeTurnId: TurnId.make("turn-default"),
+          lastError: null,
+          updatedAt: now,
+        },
+        activities: [
+          {
+            id: EventId.make("activity-approval-requested"),
+            tone: "approval" as const,
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            payload: {
+              requestId: "approval-request-1",
+              requestKind: "command",
+              requestType: "command_execution_approval",
+            },
+            turnId: TurnId.make("turn-default"),
+            createdAt: now,
+          },
+          {
+            id: EventId.make("activity-user-input-requested"),
+            tone: "info" as const,
+            kind: "user-input.requested",
+            summary: "User input requested",
+            payload: {
+              requestId: "user-input-request-1",
+              questions: [
+                {
+                  id: "question-1",
+                  header: "Choice",
+                  question: "Pick one",
+                  options: [{ label: "A", description: "Option A" }],
+                  multiSelect: false,
+                },
+              ],
+            },
+            turnId: TurnId.make("turn-default"),
+            createdAt: now,
+          },
+        ],
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getThreadDetailById: (threadId) =>
+              Effect.succeed(
+                threadId === defaultThreadId
+                  ? Option.some(nativeThread)
+                  : Option.none<
+                      ReturnType<typeof makeDefaultOrchestrationReadModel>["threads"][number]
+                    >(),
+              ),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const threadUrl = yield* getHttpServerUrl(
+        `/api/companion/native/thread?threadId=${defaultThreadId}`,
+      );
+      const response = yield* Effect.promise(() =>
+        fetch(threadUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly summary: {
+          readonly threadRef: { readonly threadId: string };
+          readonly preview: string;
+        };
+        readonly thread: {
+          readonly id: string;
+          readonly messages: ReadonlyArray<{ readonly text: string }>;
+        };
+        readonly pendingApprovals: ReadonlyArray<{
+          readonly requestId: string;
+          readonly requestKind: string | null;
+        }>;
+        readonly pendingUserInputs: ReadonlyArray<{
+          readonly requestId: string;
+          readonly questions: ReadonlyArray<{ readonly id: string; readonly question: string }>;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.summary.threadRef.threadId, defaultThreadId);
+      assert.equal(body.summary.preview, "Ship the mobile continuation flow.");
+      assert.equal(body.thread.id, defaultThreadId);
+      assert.equal(body.thread.messages[0]?.text, "Ship the mobile continuation flow.");
+      assert.equal(body.pendingApprovals[0]?.requestId, "approval-request-1");
+      assert.equal(body.pendingApprovals[0]?.requestKind, "command");
+      assert.equal(body.pendingUserInputs[0]?.requestId, "user-input-request-1");
+      assert.equal(body.pendingUserInputs[0]?.questions[0]?.id, "question-1");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

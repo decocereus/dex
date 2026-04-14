@@ -89,6 +89,12 @@ final class AppModel {
     @ObservationIgnored private var pendingCommandRowMutations: [String: PendingCommandRowMutation] = [:]
     @ObservationIgnored private var pendingCommandRowMutationTask: Task<Void, Never>?
     @ObservationIgnored private var cachedThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
+    @ObservationIgnored private var dexThreadSnapshots: [ThreadKey: AppThreadSnapshot] = [:]
+    @ObservationIgnored private var dexServerSnapshots: [String: AppServerSnapshot] = [:]
+    @ObservationIgnored private var dexPendingApprovalsByThread: [ThreadKey: [PendingApproval]] = [:]
+    @ObservationIgnored private var dexPendingUserInputsByThread: [ThreadKey: [PendingUserInputRequest]] = [:]
+    @ObservationIgnored private var dexThreadStreamTask: Task<Void, Never>?
+    @ObservationIgnored private var dexThreadStreamKey: ThreadKey?
 
     init(
         store: AppStore? = nil,
@@ -112,6 +118,11 @@ final class AppModel {
         pendingSnapshotRefreshTask?.cancel()
         pendingThreadStateTask?.cancel()
         pendingCommandRowMutationTask?.cancel()
+        dexThreadStreamTask?.cancel()
+        dexThreadSnapshots.removeAll()
+        dexServerSnapshots.removeAll()
+        dexPendingApprovalsByThread.removeAll()
+        dexPendingUserInputsByThread.removeAll()
     }
 
     func start() {
@@ -151,6 +162,13 @@ final class AppModel {
         pendingCommandRowMutationTask?.cancel()
         pendingCommandRowMutationTask = nil
         pendingCommandRowMutations.removeAll()
+        dexThreadStreamTask?.cancel()
+        dexThreadStreamTask = nil
+        dexThreadStreamKey = nil
+        dexThreadSnapshots.removeAll()
+        dexServerSnapshots.removeAll()
+        dexPendingApprovalsByThread.removeAll()
+        dexPendingUserInputsByThread.removeAll()
         subscription = nil
     }
 
@@ -191,6 +209,7 @@ final class AppModel {
         updateActiveThread(key)
         store.setActiveThread(key: key)
         scheduleDeferredActiveThreadHydrationIfNeeded(for: key)
+        startDexThreadStreamIfNeeded(for: key)
     }
 
     func resumeThread(
@@ -198,6 +217,10 @@ final class AppModel {
         launchConfig: AppThreadLaunchConfig,
         cwdOverride: String?
     ) async throws -> ThreadKey {
+        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+            try await refreshDexThreadSnapshot(key: key)
+            return key
+        }
         let trimmedCwdOverride = cwdOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let requiresResumeOverrides = requiresResumeOverrides(
             for: key,
@@ -229,6 +252,10 @@ final class AppModel {
         launchConfig: AppThreadLaunchConfig,
         cwdOverride: String?
     ) async throws -> ThreadKey {
+        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+            try await refreshDexThreadSnapshot(key: key)
+            return key
+        }
         let trimmedCwdOverride = cwdOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
         let requiresResumeOverrides = requiresResumeOverrides(
             for: key,
@@ -1180,14 +1207,35 @@ final class AppModel {
     }
 
     func availableModels(for serverId: String) -> [ModelInfo] {
-        snapshot?.serverSnapshot(for: serverId)?.availableModels ?? []
+        snapshot?.serverSnapshot(for: serverId)?.availableModels
+            ?? dexServerSnapshots[serverId]?.availableModels
+            ?? []
     }
 
     func rateLimits(for serverId: String) -> RateLimitSnapshot? {
         snapshot?.serverSnapshot(for: serverId)?.rateLimits
+            ?? dexServerSnapshots[serverId]?.rateLimits
+    }
+
+    func serverSnapshot(for serverId: String) -> AppServerSnapshot? {
+        snapshot?.serverSnapshot(for: serverId) ?? dexServerSnapshots[serverId]
+    }
+
+    var pendingApprovals: [PendingApproval] {
+        (snapshot?.pendingApprovals ?? []) + dexPendingApprovalsByThread.values.flatMap { $0 }
+    }
+
+    func pendingUserInputs(for key: ThreadKey) -> [PendingUserInputRequest] {
+        let nativeRequests = snapshot?.pendingUserInputs.filter {
+            $0.serverId == key.serverId && $0.threadId == key.threadId
+        } ?? []
+        return nativeRequests + (dexPendingUserInputsByThread[key] ?? [])
     }
 
     func loadConversationMetadataIfNeeded(serverId: String) async {
+        if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
+            return
+        }
         if hasFreshConversationMetadata(for: serverId) {
             return
         }
@@ -1228,6 +1276,9 @@ final class AppModel {
     }
 
     func startTurn(key: ThreadKey, payload: AppComposerPayload) async throws {
+        if try await startDexTurnIfNeeded(key: key, payload: payload) {
+            return
+        }
         do {
             try await store.startTurn(
                 key: key,
@@ -1239,7 +1290,282 @@ final class AppModel {
         }
     }
 
+    func interruptTurn(key: ThreadKey, turnId: String) async throws {
+        if try await interruptDexTurnIfNeeded(key: key, turnId: turnId) {
+            return
+        }
+        _ = try await client.interruptTurn(
+            serverId: key.serverId,
+            params: AppInterruptTurnRequest(threadId: key.threadId, turnId: turnId)
+        )
+    }
+
+    func respondToApproval(requestId: String, decision: ApprovalDecisionValue) async throws {
+        if try await respondToDexApprovalIfNeeded(requestId: requestId, decision: decision) {
+            return
+        }
+        try await store.respondToApproval(requestId: requestId, decision: decision)
+    }
+
+    func respondToUserInput(
+        requestId: String,
+        answers: [PendingUserInputAnswer]
+    ) async throws {
+        if try await respondToDexUserInputIfNeeded(requestId: requestId, answers: answers) {
+            return
+        }
+        try await store.respondToUserInput(requestId: requestId, answers: answers)
+    }
+
+    private func dexClient(for serverId: String) -> DexCompanionClient? {
+        guard let browserSession = DexCompanionRouting.browserSession(forServerId: serverId) else {
+            return nil
+        }
+        return DexCompanionClient(
+            httpBaseUrl: browserSession.httpBaseUrl,
+            bearerToken: browserSession.bearerToken
+        )
+    }
+
+    private func startDexThreadStreamIfNeeded(for key: ThreadKey?) {
+        guard let key, DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil else {
+            dexThreadStreamTask?.cancel()
+            dexThreadStreamTask = nil
+            dexThreadStreamKey = nil
+            return
+        }
+        guard dexThreadStreamKey != key else { return }
+
+        dexThreadStreamTask?.cancel()
+        dexThreadStreamKey = key
+        dexThreadStreamTask = Task { [weak self] in
+            guard let self,
+                  let client = self.dexClient(for: key.serverId),
+                  let browserSession = DexCompanionRouting.browserSession(forServerId: key.serverId)
+            else {
+                return
+            }
+
+            do {
+                try await client.streamNativeThreadSnapshots(threadId: key.threadId) { snapshot in
+                    guard !Task.isCancelled else { return }
+                    let overlay = DexNativeThreadAdapter.makeOverlay(
+                        serverId: key.serverId,
+                        browserSession: browserSession,
+                        snapshot: snapshot
+                    )
+                    await MainActor.run {
+                        self.dexServerSnapshots[key.serverId] = overlay.serverSnapshot
+                        self.dexThreadSnapshots[key] = overlay.threadSnapshot
+                        self.dexPendingApprovalsByThread[key] = overlay.pendingApprovals
+                        self.dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
+                        self.snapshotRevision &+= 1
+                    }
+                }
+            } catch {
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        self.lastError = error.localizedDescription
+                    }
+                }
+            }
+        }
+    }
+
+    private func refreshDexThreadSnapshot(key: ThreadKey) async throws {
+        guard let client = dexClient(for: key.serverId),
+              let browserSession = DexCompanionRouting.browserSession(forServerId: key.serverId)
+        else {
+            return
+        }
+
+        let nativeSnapshot = try await client.fetchNativeThreadSnapshot(threadId: key.threadId)
+        let overlay = DexNativeThreadAdapter.makeOverlay(
+            serverId: key.serverId,
+            browserSession: browserSession,
+            snapshot: nativeSnapshot
+        )
+        dexServerSnapshots[key.serverId] = overlay.serverSnapshot
+        dexThreadSnapshots[key] = overlay.threadSnapshot
+        dexPendingApprovalsByThread[key] = overlay.pendingApprovals
+        dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
+        snapshotRevision &+= 1
+    }
+
+    private func startDexTurnIfNeeded(
+        key: ThreadKey,
+        payload: AppComposerPayload
+    ) async throws -> Bool {
+        guard let client = dexClient(for: key.serverId) else {
+            return false
+        }
+
+        let inputs = ConversationAttachmentSupport.buildTurnInputs(
+            text: payload.text,
+            additionalInput: payload.additionalInputs
+        )
+        let text = inputs.compactMap { input -> String? in
+            if case .text(let value, _) = input {
+                return value
+            }
+            return nil
+        }.joined(separator: "\n")
+        let attachments = inputs.compactMap { input -> [String: Any]? in
+            guard case .image(let dataUrl) = input else { return nil }
+            let mimeType = dataUrl.split(separator: ";").first?
+                .split(separator: ":").last
+                .map(String.init) ?? "image/png"
+            return [
+                "type": "image",
+                "name": "attachment",
+                "mimeType": mimeType,
+                "sizeBytes": 0,
+                "dataUrl": dataUrl,
+            ]
+        }
+
+        _ = try await client.dispatchCommand([
+            "type": "thread.turn.start",
+            "commandId": UUID().uuidString,
+            "threadId": key.threadId,
+            "message": [
+                "messageId": UUID().uuidString,
+                "role": "user",
+                "text": text,
+                "attachments": attachments,
+            ],
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ])
+        try await refreshDexThreadSnapshot(key: key)
+        return true
+    }
+
+    private func interruptDexTurnIfNeeded(
+        key: ThreadKey,
+        turnId: String
+    ) async throws -> Bool {
+        guard let client = dexClient(for: key.serverId) else {
+            return false
+        }
+        _ = try await client.dispatchCommand([
+            "type": "thread.turn.interrupt",
+            "commandId": UUID().uuidString,
+            "threadId": key.threadId,
+            "turnId": turnId,
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ])
+        try await refreshDexThreadSnapshot(key: key)
+        return true
+    }
+
+    private func respondToDexApprovalIfNeeded(
+        requestId: String,
+        decision: ApprovalDecisionValue
+    ) async throws -> Bool {
+        guard let entry = dexPendingApprovalsByThread.first(where: { _, approvals in
+            approvals.contains(where: { $0.id == requestId })
+        }) else {
+            return false
+        }
+        guard let client = dexClient(for: entry.key.serverId) else {
+            return false
+        }
+        let mappedDecision: String = switch decision {
+        case .accept:
+            "accept"
+        case .acceptForSession:
+            "acceptForSession"
+        case .decline:
+            "decline"
+        case .cancel:
+            "cancel"
+        }
+        _ = try await client.dispatchCommand([
+            "type": "thread.approval.respond",
+            "commandId": UUID().uuidString,
+            "threadId": entry.key.threadId,
+            "requestId": requestId,
+            "decision": mappedDecision,
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ])
+        try await refreshDexThreadSnapshot(key: entry.key)
+        return true
+    }
+
+    private func respondToDexUserInputIfNeeded(
+        requestId: String,
+        answers: [PendingUserInputAnswer]
+    ) async throws -> Bool {
+        guard let entry = dexPendingUserInputsByThread.first(where: { _, requests in
+            requests.contains(where: { $0.id == requestId })
+        }) else {
+            return false
+        }
+        guard let client = dexClient(for: entry.key.serverId) else {
+            return false
+        }
+        let mappedAnswers = Dictionary(uniqueKeysWithValues: answers.map { ($0.questionId, $0.answers) })
+        _ = try await client.dispatchCommand([
+            "type": "thread.user-input.respond",
+            "commandId": UUID().uuidString,
+            "threadId": entry.key.threadId,
+            "requestId": requestId,
+            "answers": mappedAnswers,
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ])
+        try await refreshDexThreadSnapshot(key: entry.key)
+        return true
+    }
+
+    func startDexThread(
+        serverId: String,
+        cwd: String?,
+        model: String?
+    ) async throws -> ThreadKey? {
+        guard let projectId = DexCompanionRouting.projectId(fromServerId: serverId),
+              let client = dexClient(for: serverId)
+        else {
+            return nil
+        }
+
+        let threadId = UUID().uuidString
+        _ = try await client.dispatchCommand([
+            "type": "thread.create",
+            "commandId": UUID().uuidString,
+            "threadId": threadId,
+            "projectId": projectId,
+            "title": "New Session",
+            "modelSelection": [
+                "provider": "codex",
+                "model": (model?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? model!
+                    : "gpt-5-codex"),
+            ],
+            "runtimeMode": "full-access",
+            "interactionMode": "default",
+            "branch": NSNull(),
+            "worktreePath": cwd?.isEmpty == false ? cwd! : NSNull(),
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ])
+
+        let key = ThreadKey(serverId: serverId, threadId: threadId)
+        try await refreshDexThreadSnapshot(key: key)
+        return key
+    }
+
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {
+        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+            do {
+                try await refreshDexThreadSnapshot(key: key)
+                if let existing = threadSnapshot(for: key) {
+                    appState.hydratePermissions(from: existing)
+                    return key
+                }
+            } catch {
+                lastError = error.localizedDescription
+            }
+            return key
+        }
         let canResumeViaIpc = snapshot?.serverSnapshot(for: key.serverId)?.canResumeViaIpc == true
 
         if let existing = threadSnapshot(for: key) {
@@ -1328,6 +1654,15 @@ final class AppModel {
         key: ThreadKey,
         maxAttempts: Int = 5
     ) async -> ThreadKey? {
+        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+            do {
+                try await refreshDexThreadSnapshot(key: key)
+                return threadSnapshot(for: key) != nil ? key : nil
+            } catch {
+                lastError = error.localizedDescription
+                return nil
+            }
+        }
         if threadSnapshot(for: key) != nil {
             return key
         }
@@ -1392,7 +1727,9 @@ final class AppModel {
     }
 
     func threadSnapshot(for key: ThreadKey) -> AppThreadSnapshot? {
-        snapshot?.threadSnapshot(for: key) ?? cachedThreadSnapshots[key]
+        snapshot?.threadSnapshot(for: key)
+            ?? cachedThreadSnapshots[key]
+            ?? dexThreadSnapshots[key]
     }
 
     private func hasAuthoritativePermissions(_ thread: AppThreadSnapshot) -> Bool {

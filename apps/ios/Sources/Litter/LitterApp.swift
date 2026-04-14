@@ -388,10 +388,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private var approvalOverlay: some View {
-        if let approval = appModel.snapshot?.pendingApprovals.first(where: { $0.kind != .mcpElicitation }) {
+        if let approval = appModel.pendingApprovals.first(where: { $0.kind != .mcpElicitation }) {
             ApprovalPromptView(approval: approval) { decision in
                 Task {
-                    try? await appModel.store.respondToApproval(
+                    try? await appModel.respondToApproval(
                         requestId: approval.id,
                         decision: decision
                     )
@@ -822,10 +822,6 @@ private struct HomeNavigationView: View {
     }
 
     private func openRecentSession(_ thread: HomeDashboardRecentSession) async {
-        if let launchSession = thread.launchSession {
-            openDexCompanion(launchSession)
-            return
-        }
         guard openingRecentSessionKey == nil else { return }
         openingRecentSessionKey = thread.key
         actionErrorMessage = nil
@@ -857,8 +853,22 @@ private struct HomeNavigationView: View {
     }
 
     private func startNewSession(serverId: String, cwd: String) async {
-        if let launchSession = DexCompanionRouting.browserSession(forServerId: serverId) {
-            openDexCompanion(launchSession)
+        if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
+            do {
+                let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let key = try await appModel.startDexThread(
+                    serverId: serverId,
+                    cwd: cwd,
+                    model: selectedModel.isEmpty ? nil : selectedModel
+                ) else {
+                    actionErrorMessage = "Failed to create session."
+                    return
+                }
+                appModel.activateThread(key)
+                openConversation(key)
+            } catch {
+                actionErrorMessage = error.localizedDescription
+            }
             return
         }
         guard !isStartingNewSession else { return }
@@ -1088,15 +1098,12 @@ private struct ConversationDestinationScreen: View {
     }
 
     private var pendingUserInputsForThread: [PendingUserInputRequest] {
-        guard let snapshot = appModel.snapshot else { return [] }
         let key = resolvedThreadKey
-        return snapshot.pendingUserInputs.filter {
-            $0.serverId == key.serverId && $0.threadId == key.threadId
-        }
+        return appModel.pendingUserInputs(for: key)
     }
 
     private var relevantServerSnapshot: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: resolvedThreadKey.serverId)
+        appModel.serverSnapshot(for: resolvedThreadKey.serverId)
     }
 
     private func bindScreenModel(for thread: AppThreadSnapshot) {
@@ -1113,9 +1120,7 @@ private struct ConversationDestinationScreen: View {
 
     var body: some View {
         Group {
-            if let dexSession = DexCompanionRouting.browserSession(forThreadKey: threadKey) {
-                DexCompanionWebScreen(session: dexSession)
-            } else if let conversationThread {
+            if let conversationThread {
                 ConversationView(
                     thread: conversationThread,
                     activeThreadKey: resolvedThreadKey,
@@ -1162,7 +1167,7 @@ private struct ConversationDestinationScreen: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let conversationThread, DexCompanionRouting.browserSession(forThreadKey: threadKey) == nil {
+            if let conversationThread {
                 ToolbarItem(placement: .principal) {
                     HeaderView(thread: conversationThread)
                 }

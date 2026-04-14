@@ -1090,10 +1090,6 @@ struct SessionsScreen: View {
     }
 
     private func resumeSession(_ thread: AppSessionSummary) async {
-        if let launchSession = dexLaunchSessionByThreadKey[thread.key] {
-            activeDexCompanionSession = launchSession
-            return
-        }
         guard resumingKey == nil else { return }
         resumingKey = thread.key
         sessionActionErrorMessage = nil
@@ -1127,8 +1123,22 @@ struct SessionsScreen: View {
     }
 
     private func startNewSession(serverId: String, cwd: String) async {
-        if let launchSession = dexLaunchSessionByServerId[serverId] {
-            activeDexCompanionSession = launchSession
+        if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
+            do {
+                let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let key = try await appModel.startDexThread(
+                    serverId: serverId,
+                    cwd: cwd,
+                    model: selectedModel.isEmpty ? nil : selectedModel
+                ) else {
+                    sessionActionErrorMessage = "Failed to create session."
+                    return
+                }
+                appModel.activateThread(key)
+                onOpenConversation(key)
+            } catch {
+                sessionActionErrorMessage = error.localizedDescription
+            }
             return
         }
         guard !isStartingNewSession else { return }
@@ -1163,10 +1173,6 @@ struct SessionsScreen: View {
     }
 
     private func forkThread(_ thread: AppSessionSummary) async {
-        if let launchSession = dexLaunchSessionByThreadKey[thread.key] {
-            activeDexCompanionSession = launchSession
-            return
-        }
         guard !isForkingActiveThread else { return }
         isForkingActiveThread = true
         defer { isForkingActiveThread = false }
