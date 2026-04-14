@@ -1,0 +1,190 @@
+import Foundation
+import Observation
+import UIKit
+import UserNotifications
+
+@MainActor
+@Observable
+final class AppRuntimeController {
+    static let shared = AppRuntimeController()
+
+    @ObservationIgnored private weak var appModel: AppModel?
+    @ObservationIgnored private weak var voiceRuntime: VoiceRuntimeController?
+    @ObservationIgnored private let lifecycle = AppLifecycleController()
+    @ObservationIgnored private let liveActivities = TurnLiveActivityController()
+    @ObservationIgnored private var pendingLiveActivitySync = false
+    @ObservationIgnored private var lastLiveActivitySyncTime: CFAbsoluteTime = 0
+    @ObservationIgnored private var dismissedBannerIDs: Set<String> = []
+    private(set) var globalBanner: AppGlobalBanner?
+
+    func bind(appModel: AppModel, voiceRuntime: VoiceRuntimeController) {
+        self.appModel = appModel
+        self.voiceRuntime = voiceRuntime
+        Task { [weak self] in
+            await self?.refreshGlobalBanner()
+        }
+    }
+
+    func setDevicePushToken(_ token: Data) {
+        lifecycle.setDevicePushToken(token)
+    }
+
+    func reconnectSavedServers() async {
+        guard let appModel else { return }
+        await lifecycle.reconnectSavedServers(appModel: appModel)
+    }
+
+    func reconnectServer(serverId: String) async {
+        guard let appModel else { return }
+        await lifecycle.reconnectServer(serverId: serverId, appModel: appModel)
+    }
+
+    func openThreadFromNotification(key: ThreadKey) async {
+        guard let appModel else { return }
+        LLog.info(
+            "push",
+            "runtime opening thread from notification",
+            fields: ["serverId": key.serverId, "threadId": key.threadId]
+        )
+        lifecycle.markThreadOpenedFromNotification(key)
+        appModel.activateThread(key)
+        await appModel.refreshSnapshot()
+
+        if let resolvedKey = await appModel.ensureThreadLoaded(key: key) {
+            lifecycle.markThreadOpenedFromNotification(resolvedKey)
+            LLog.info(
+                "push",
+                "notification thread resolved and activated",
+                fields: ["serverId": resolvedKey.serverId, "threadId": resolvedKey.threadId]
+            )
+            appModel.activateThread(resolvedKey)
+            await appModel.refreshSnapshot()
+        } else {
+            LLog.warn(
+                "push",
+                "notification thread could not be resolved",
+                fields: ["serverId": key.serverId, "threadId": key.threadId]
+            )
+        }
+    }
+
+    func handleSnapshot(_ snapshot: AppSnapshotRecord?) {
+        let now = CFAbsoluteTimeGetCurrent()
+        let elapsed = now - lastLiveActivitySyncTime
+        if elapsed >= 3.0 {
+            lastLiveActivitySyncTime = now
+            liveActivities.sync(snapshot)
+        } else if !pendingLiveActivitySync {
+            pendingLiveActivitySync = true
+            let delay = 3.0 - elapsed
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self else { return }
+                self.pendingLiveActivitySync = false
+                self.lastLiveActivitySyncTime = CFAbsoluteTimeGetCurrent()
+                self.liveActivities.sync(self.appModel?.snapshot)
+            }
+        }
+    }
+
+    func appDidEnterBackground() {
+        guard let appModel else { return }
+        appModel.reconnectController.onAppEnteredBackground()
+        lifecycle.appDidEnterBackground(
+            snapshot: appModel.snapshot,
+            hasActiveVoiceSession: voiceRuntime?.activeVoiceSession != nil,
+            liveActivities: liveActivities
+        )
+    }
+
+    func appDidBecomeInactive() {
+        guard let appModel else { return }
+        appModel.reconnectController.onAppBecameInactive()
+    }
+
+    func appDidBecomeActive() {
+        guard let appModel else { return }
+        // Keep lifecycle state in sync even when foreground recovery exits early
+        // for an already-running voice session.
+        appModel.reconnectController.noteAppBecameActive()
+        lifecycle.appDidBecomeActive(
+            appModel: appModel,
+            hasActiveVoiceSession: voiceRuntime?.activeVoiceSession != nil,
+            liveActivities: liveActivities
+        )
+        Task { [weak self] in
+            await self?.refreshGlobalBanner()
+        }
+    }
+
+    func handleBackgroundPush() async {
+        guard let appModel else { return }
+        LLog.info("push", "runtime handling background push")
+        await lifecycle.handleBackgroundPush(
+            appModel: appModel,
+            liveActivities: liveActivities
+        )
+        LLog.info("push", "runtime finished background push")
+    }
+
+    func dismissGlobalBanner() {
+        guard let globalBanner else { return }
+        dismissedBannerIDs.insert(globalBanner.id)
+        self.globalBanner = nil
+    }
+
+    func performGlobalBannerPrimaryAction() {
+        guard let globalBanner else { return }
+        switch globalBanner {
+        case .notificationPermission(let banner):
+            switch banner.kind {
+            case .prompt:
+                Task { [weak self] in
+                    await self?.requestNotificationPermissionFromBanner()
+                }
+            case .denied:
+                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                UIApplication.shared.open(url)
+            }
+        }
+    }
+
+    private func requestNotificationPermissionFromBanner() async {
+        LLog.info("push", "requesting notification permission from global banner")
+        do {
+            _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+        } catch {
+            LLog.error("push", "notification permission request failed", error: error)
+        }
+        UIApplication.shared.registerForRemoteNotifications()
+        dismissedBannerIDs.remove("notification-permission-prompt")
+        await refreshGlobalBanner()
+    }
+
+    private func refreshGlobalBanner() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        let nextBanner = notificationPermissionBanner(for: settings.authorizationStatus)
+        if let nextBanner {
+            if dismissedBannerIDs.contains(nextBanner.id) {
+                globalBanner = nil
+            } else {
+                globalBanner = nextBanner
+            }
+        } else {
+            dismissedBannerIDs.remove("notification-permission-prompt")
+            dismissedBannerIDs.remove("notification-permission-denied")
+            globalBanner = nil
+        }
+    }
+
+    private func notificationPermissionBanner(for status: UNAuthorizationStatus) -> AppGlobalBanner? {
+        switch status {
+        case .notDetermined:
+            return .notificationPermission(NotificationPermissionBanner(kind: .prompt))
+        case .denied:
+            return .notificationPermission(NotificationPermissionBanner(kind: .denied))
+        default:
+            return nil
+        }
+    }
+}

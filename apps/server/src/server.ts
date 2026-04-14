@@ -51,6 +51,7 @@ import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import {
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
+  authCompanionPairingPayloadRouteLayer,
   authClientsRevokeOthersRouteLayer,
   authClientsRevokeRouteLayer,
   authClientsRouteLayer,
@@ -69,6 +70,9 @@ import {
   persistServerRuntimeState,
 } from "./serverRuntimeState";
 import {
+  companionDispatchRouteLayer,
+  companionShellSnapshotRouteLayer,
+  companionThreadDetailRouteLayer,
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
 } from "./orchestration/http";
@@ -224,6 +228,7 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
 export const makeRoutesLayer = Layer.mergeAll(
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
+  authCompanionPairingPayloadRouteLayer,
   authClientsRevokeOthersRouteLayer,
   authClientsRevokeRouteLayer,
   authClientsRouteLayer,
@@ -233,6 +238,9 @@ export const makeRoutesLayer = Layer.mergeAll(
   authSessionRouteLayer,
   authWebSocketTokenRouteLayer,
   attachmentsRouteLayer,
+  companionDispatchRouteLayer,
+  companionShellSnapshotRouteLayer,
+  companionThreadDetailRouteLayer,
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
   otlpTracesProxyRouteLayer,

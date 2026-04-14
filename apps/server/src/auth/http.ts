@@ -5,13 +5,16 @@ import {
   AuthRevokeClientSessionInput,
   AuthRevokePairingLinkInput,
   type AuthWebSocketTokenResult,
-} from "@t3tools/contracts";
+  CompanionPairingPayload,
+  CreateCompanionPairingPayloadInput,
+} from "@dex/contracts";
 import { DateTime, Effect, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { AuthError, ServerAuth } from "./Services/ServerAuth.ts";
 import { SessionCredentialService } from "./Services/SessionCredentialService.ts";
 import { deriveAuthClientMetadata } from "./utils.ts";
+import { ServerEnvironment } from "../environment/Services/ServerEnvironment.ts";
 
 export const respondToAuthError = (error: AuthError) =>
   Effect.gen(function* () {
@@ -167,6 +170,43 @@ export const authPairingCredentialRouteLayer = HttpRouter.add(
       : {};
     const result = yield* serverAuth.issuePairingCredential(payload);
     return HttpServerResponse.jsonUnsafe(result, { status: 200 });
+  }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error))),
+);
+
+export const authCompanionPairingPayloadRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/auth/companion/pairing",
+  Effect.gen(function* () {
+    const { serverAuth } = yield* authenticateOwnerSession;
+    const serverEnvironment = yield* ServerEnvironment;
+    const payload = yield* HttpServerRequest.schemaBodyJson(
+      CreateCompanionPairingPayloadInput,
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AuthError({
+            message: "Invalid companion pairing payload request.",
+            status: 400,
+            cause,
+          }),
+      ),
+    );
+    const [descriptor, authDescriptor, pairing] = yield* Effect.all([
+      serverEnvironment.getDescriptor,
+      serverAuth.getDescriptor(),
+      serverAuth.issuePairingCredential(payload.label ? { label: payload.label } : {}),
+    ]);
+    return HttpServerResponse.jsonUnsafe(
+      {
+        version: 1,
+        issuedAt: DateTime.fromDateUnsafe(new Date()),
+        environment: descriptor,
+        auth: authDescriptor,
+        target: payload.target,
+        pairing,
+      } satisfies CompanionPairingPayload,
+      { status: 200 },
+    );
   }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error))),
 );
 

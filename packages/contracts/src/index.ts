@@ -1,5 +1,6 @@
 export * from "./baseSchemas";
 export * from "./auth";
+export * from "./companion";
 export * from "./environment";
 export * from "./ipc";
 export * from "./terminal";

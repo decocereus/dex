@@ -5,7 +5,7 @@ import {
   type AuthPairingLink,
   type DesktopServerExposureState,
   type EnvironmentId,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { DateTime } from "effect";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -47,6 +47,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
 import {
+  createServerCompanionPairingPayload,
   createServerPairingCredential,
   fetchSessionState,
   revokeOtherServerClientSessions,
@@ -252,6 +253,12 @@ function resolveDesktopPairingUrl(endpointUrl: string, credential: string): stri
 function resolveCurrentOriginPairingUrl(credential: string): string {
   const url = new URL("/pair", window.location.href);
   return setPairingTokenOnUrl(url, credential).toString();
+}
+
+function deriveCompanionWsBaseUrl(httpBaseUrl: string): string {
+  const url = new URL(httpBaseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }
 
 type PairingLinkListRowProps = {
@@ -513,12 +520,14 @@ const ConnectedClientListRow = memo(function ConnectedClientListRow({
 });
 
 type AuthorizedClientsHeaderActionProps = {
+  endpointUrl: string | null | undefined;
   clientSessions: ReadonlyArray<ServerClientSessionRecord>;
   isRevokingOtherClients: boolean;
   onRevokeOtherClients: () => void;
 };
 
 const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderAction({
+  endpointUrl,
   clientSessions,
   isRevokingOtherClients,
   onRevokeOtherClients,
@@ -526,6 +535,26 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
   const [dialogOpen, setDialogOpen] = useState(false);
   const [pairingLabel, setPairingLabel] = useState("");
   const [isCreatingPairingLink, setIsCreatingPairingLink] = useState(false);
+  const [companionDialogOpen, setCompanionDialogOpen] = useState(false);
+  const [companionLabel, setCompanionLabel] = useState("iPhone companion");
+  const [isCreatingCompanionPayload, setIsCreatingCompanionPayload] = useState(false);
+  const [companionPayloadText, setCompanionPayloadText] = useState("");
+  const { copyToClipboard, isCopied } = useCopyToClipboard({
+    onCopy: () => {
+      toastManager.add({
+        type: "success",
+        title: "iPhone pairing payload copied",
+        description: "Paste it into the iPhone companion flow if scanning is unavailable.",
+      });
+    },
+    onError: (error) => {
+      toastManager.add({
+        type: "error",
+        title: "Could not copy pairing payload",
+        description: error.message,
+      });
+    },
+  });
 
   const handleCreatePairingLink = useCallback(async () => {
     setIsCreatingPairingLink(true);
@@ -545,6 +574,43 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
     }
   }, [pairingLabel]);
 
+  const handleCreateCompanionPayload = useCallback(async () => {
+    if (!endpointUrl) {
+      toastManager.add({
+        type: "error",
+        title: "Network access required",
+        description: "Enable network access for this backend before pairing an iPhone companion.",
+      });
+      return;
+    }
+    setIsCreatingCompanionPayload(true);
+    try {
+      const payload = await createServerCompanionPairingPayload({
+        httpBaseUrl: endpointUrl,
+        wsBaseUrl: deriveCompanionWsBaseUrl(endpointUrl),
+        label: companionLabel,
+      });
+      setCompanionPayloadText(JSON.stringify(payload));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to create iPhone pairing payload.";
+      toastManager.add({
+        type: "error",
+        title: "Could not create iPhone pairing payload",
+        description: message,
+      });
+    } finally {
+      setIsCreatingCompanionPayload(false);
+    }
+  }, [companionLabel, endpointUrl]);
+
+  const handleCopyCompanionPayload = useCallback(() => {
+    if (!companionPayloadText) return;
+    copyToClipboard(companionPayloadText, undefined);
+  }, [companionPayloadText, copyToClipboard]);
+
+  const companionQrValue = companionPayloadText;
+
   return (
     <div className="flex items-center gap-2">
       <Button
@@ -557,6 +623,93 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
       >
         {isRevokingOtherClients ? "Revoking…" : "Revoke others"}
       </Button>
+      <Dialog
+        open={companionDialogOpen}
+        onOpenChange={(open) => {
+          setCompanionDialogOpen(open);
+          if (!open) {
+            setCompanionPayloadText("");
+            setCompanionLabel("iPhone companion");
+          }
+        }}
+      >
+        <DialogTrigger
+          render={
+            <Button size="xs" variant="default" disabled={!endpointUrl}>
+              <QrCodeIcon className="size-3" />
+              Pair iPhone
+            </Button>
+          }
+        />
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Pair iPhone companion</DialogTitle>
+            <DialogDescription>
+              Generate a QR payload for the iPhone companion flow. The backend must be
+              network-reachable so the phone can reconnect from anywhere.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-4">
+            <label className="block">
+              <span className="mb-1.5 block text-xs font-medium text-foreground">
+                Device label (optional)
+              </span>
+              <Input
+                value={companionLabel}
+                onChange={(event) => setCompanionLabel(event.target.value)}
+                placeholder="e.g. Amartya's iPhone"
+                disabled={isCreatingCompanionPayload}
+                autoFocus
+              />
+            </label>
+            {companionQrValue ? (
+              <div className="flex justify-center rounded-xl border border-border/60 bg-muted/30 p-4">
+                <QRCodeSvg
+                  value={companionQrValue}
+                  size={180}
+                  level="M"
+                  marginSize={2}
+                  title="iPhone companion pairing payload"
+                />
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Generate the payload, then scan it in the imported iPhone app.
+              </p>
+            )}
+            {companionPayloadText ? (
+              <Textarea
+                readOnly
+                value={companionPayloadText}
+                rows={6}
+                className="text-[11px] leading-relaxed"
+                onFocus={(event) => event.currentTarget.select()}
+                onClick={(event) => event.currentTarget.select()}
+              />
+            ) : null}
+          </DialogPanel>
+          <DialogFooter variant="bare">
+            <Button variant="outline" onClick={() => setCompanionDialogOpen(false)}>
+              Close
+            </Button>
+            {companionPayloadText ? (
+              <Button variant="outline" onClick={handleCopyCompanionPayload}>
+                {isCopied ? "Copied" : "Copy payload"}
+              </Button>
+            ) : null}
+            <Button
+              disabled={isCreatingCompanionPayload}
+              onClick={() => void handleCreateCompanionPayload()}
+            >
+              {isCreatingCompanionPayload
+                ? "Generating…"
+                : companionPayloadText
+                  ? "Regenerate"
+                  : "Generate"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
       <Dialog
         open={dialogOpen}
         onOpenChange={(open) => {
@@ -578,8 +731,8 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
           <DialogHeader>
             <DialogTitle>Create pairing link</DialogTitle>
             <DialogDescription>
-              Generate a one-time link that another device can use to pair with this backend as an
-              authorized client.
+              Generate a one-time link that another browser or client can use to pair with this
+              backend as an authorized client.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -1162,8 +1315,8 @@ export function ConnectionsSettings() {
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                           {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "T3 Code will restart to expose this environment over the network."
-                            : "T3 Code will restart and limit this environment back to this machine."}
+                            ? "dex will restart to expose this environment over the network."
+                            : "dex will restart and limit this environment back to this machine."}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -1234,6 +1387,7 @@ export function ConnectionsSettings() {
               title="Authorized clients"
               headerAction={
                 <AuthorizedClientsHeaderAction
+                  endpointUrl={desktopServerExposureState?.endpointUrl}
                   clientSessions={desktopClientSessions}
                   isRevokingOtherClients={isRevokingOtherDesktopClients}
                   onRevokeOtherClients={handleRevokeOtherDesktopClients}

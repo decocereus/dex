@@ -21,7 +21,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
   EditorId,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
 import {
@@ -260,9 +260,9 @@ const makeBrowserOtlpPayload = (spanName: string) =>
         url: collector.url,
         exportInterval: "10 millis",
         resource: {
-          serviceName: "t3-web",
+          serviceName: "dex-web",
           attributes: {
-            "service.runtime": "t3-web",
+            "service.runtime": "dex-web",
             "service.mode": "browser",
             "service.version": "test",
           },
@@ -312,7 +312,7 @@ const buildAppUnderTest = (options?: {
 }) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-test-" });
+    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "dex-router-test-" });
     const baseDir = options?.config?.baseDir ?? tempBaseDir;
     const devUrl = options?.config?.devUrl;
     const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
@@ -326,7 +326,7 @@ const buildAppUnderTest = (options?: {
       otlpTracesUrl: undefined,
       otlpMetricsUrl: undefined,
       otlpExportIntervalMs: 10_000,
-      otlpServiceName: "t3-server",
+      otlpServiceName: "dex-server",
       mode: "desktop",
       port: 0,
       host: "127.0.0.1",
@@ -689,7 +689,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-static-" });
+      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "dex-router-static-" });
       const indexPath = path.join(staticDir, "index.html");
       yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
 
@@ -723,7 +723,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-router-project-favicon-",
+        prefix: "dex-router-project-favicon-",
       });
       yield* fileSystem.writeFileString(
         path.join(projectDir, "favicon.svg"),
@@ -752,7 +752,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-router-project-favicon-fallback-",
+        prefix: "dex-router-project-favicon-fallback-",
       });
 
       yield* buildAppUnderTest({
@@ -777,7 +777,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       yield* buildAppUnderTest();
 
-      const url = yield* getHttpServerUrl("/.well-known/t3/environment");
+      const url = yield* getHttpServerUrl("/.well-known/dex/environment");
       const response = yield* Effect.promise(() => fetch(url));
       const body = (yield* Effect.promise(() =>
         response.json(),
@@ -908,6 +908,137 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(typeof wsTokenBody.token, "string");
       assert.isTrue(wsTokenBody.token.length > 0);
       assert.equal(typeof wsTokenBody.expiresAt, "string");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("issues Dex companion pairing payloads for owner sessions", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingUrl = yield* getHttpServerUrl("/api/auth/companion/pairing");
+      const response = yield* Effect.promise(() =>
+        fetch(pairingUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            target: {
+              httpBaseUrl: "https://example.test",
+              wsBaseUrl: "wss://example.test",
+            },
+            label: "Amartya's iPhone",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly version: number;
+        readonly environment: { readonly environmentId: string; readonly label: string };
+        readonly auth: { readonly policy: string };
+        readonly target: { readonly httpBaseUrl: string; readonly wsBaseUrl: string };
+        readonly pairing: { readonly credential: string; readonly label?: string };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.version, 1);
+      assert.equal(body.environment.environmentId, testEnvironmentDescriptor.environmentId);
+      assert.equal(body.auth.policy, "desktop-managed-local");
+      assert.equal(body.target.httpBaseUrl, "https://example.test");
+      assert.equal(body.target.wsBaseUrl, "wss://example.test");
+      assert.equal(body.pairing.label, "Amartya's iPhone");
+      assert.isTrue((body.pairing.credential?.length ?? 0) > 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves companion shell snapshots to authenticated client bearer sessions", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const shellUrl = yield* getHttpServerUrl("/api/companion/shell");
+      const response = yield* Effect.promise(() =>
+        fetch(shellUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly snapshotSequence: number;
+        readonly projects: ReadonlyArray<{ readonly id: string }>;
+        readonly threads: ReadonlyArray<{ readonly id: string }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.isTrue(Array.isArray(body.projects));
+      assert.isTrue(Array.isArray(body.threads));
+      assert.equal(typeof body.snapshotSequence, "number");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects non-owner companion dispatch for disallowed command types", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const dispatchUrl = yield* getHttpServerUrl("/api/companion/dispatch");
+      const response = yield* Effect.promise(() =>
+        fetch(dispatchUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "thread.create",
+            commandId: CommandId.make("companion-disallowed"),
+            threadId: ThreadId.make("thread-companion-disallowed"),
+            projectId: defaultProjectId,
+            title: "Should fail",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: new Date().toISOString(),
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error: string };
+
+      assert.equal(response.status, 400);
+      assert.include(body.error, "Client sessions cannot dispatch thread.create");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1275,7 +1406,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-router-project-favicon-query-token-",
+          prefix: "dex-router-project-favicon-query-token-",
         });
 
         yield* buildAppUnderTest();
@@ -1432,7 +1563,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               attributes: [
                 {
                   key: "service.name",
-                  value: { stringValue: "t3-web" },
+                  value: { stringValue: "dex-web" },
                 },
               ],
             },
@@ -1573,7 +1704,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             "rpc.method": "server.getSettings",
           },
           resourceAttributes: {
-            "service.name": "t3-web",
+            "service.name": "dex-web",
           },
           scope: {
             name: "effect",
@@ -1703,7 +1834,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(record.links, []);
         assert.equal(record.scope.name, scopeSpan.scope.name);
         assert.deepEqual(record.scope.attributes, {});
-        assert.equal(record.resourceAttributes["service.name"], "t3-web");
+        assert.equal(record.resourceAttributes["service.name"], "dex-web");
         assert.equal(record.status?.code, String(span.status.code));
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -1764,7 +1895,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-auth-required-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-auth-required-" });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -1936,7 +2067,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-search-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-project-search-" });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -1989,7 +2120,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-project-write-" });
 
       yield* buildAppUnderTest();
 
@@ -2013,7 +2144,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("routes websocket rpc projects.writeFile errors", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-project-write-" });
 
       yield* buildAppUnderTest();
 
@@ -2818,16 +2949,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("enriches replayed project events with repository identity metadata", () =>
     Effect.gen(function* () {
       const repositoryIdentity = {
-        canonicalKey: "github.com/t3tools/t3code",
+        canonicalKey: "github.com/pingdotgg/dex",
         locator: {
           source: "git-remote" as const,
           remoteName: "origin",
-          remoteUrl: "git@github.com:T3Tools/t3code.git",
+          remoteUrl: "git@github.com:pingdotgg/dex.git",
         },
-        displayName: "T3Tools/t3code",
+        displayName: "pingdotgg/dex",
         provider: "github",
-        owner: "T3Tools",
-        name: "t3code",
+        owner: "pingdotgg",
+        name: "dex",
       };
 
       yield* buildAppUnderTest({
@@ -2927,7 +3058,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             isRepo: true,
             hasOriginRemote: true,
             isDefaultBranch: false,
-            branch: "t3code/bootstrap-branch",
+            branch: "dex/bootstrap-branch",
             hasWorkingTreeChanges: false,
             workingTree: {
               files: [],
@@ -2943,7 +3074,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
           Effect.succeed({
             worktree: {
-              branch: "t3code/bootstrap-branch",
+              branch: "dex/bootstrap-branch",
               path: "/tmp/bootstrap-worktree",
             },
           }),
@@ -3012,7 +3143,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 prepareWorktree: {
                   projectCwd: "/tmp/project",
                   baseBranch: "main",
-                  branch: "t3code/bootstrap-branch",
+                  branch: "dex/bootstrap-branch",
                 },
                 runSetupScript: true,
               },
@@ -3035,7 +3166,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
           branch: "main",
-          newBranch: "t3code/bootstrap-branch",
+          newBranch: "dex/bootstrap-branch",
           path: null,
         });
         assert.deepEqual(runForThread.mock.calls[0]?.[0], {
@@ -3068,7 +3199,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
         Effect.succeed({
           worktree: {
-            branch: "t3code/bootstrap-branch",
+            branch: "dex/bootstrap-branch",
             path: "/tmp/bootstrap-worktree",
           },
         }),
@@ -3128,7 +3259,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "dex/bootstrap-branch",
               },
               runSetupScript: true,
             },
@@ -3161,7 +3292,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
         Effect.succeed({
           worktree: {
-            branch: "t3code/bootstrap-branch",
+            branch: "dex/bootstrap-branch",
             path: "/tmp/bootstrap-worktree",
           },
         }),
@@ -3244,7 +3375,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "dex/bootstrap-branch",
               },
               runSetupScript: true,
             },
@@ -3327,7 +3458,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "dex/bootstrap-branch",
               },
               runSetupScript: false,
             },
