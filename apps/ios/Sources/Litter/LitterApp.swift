@@ -821,10 +821,6 @@ private struct HomeNavigationView: View {
     }
 
     private func openServerSessions(_ server: HomeDashboardServer) {
-        if let launchSession = server.launchSession {
-            openDexCompanion(launchSession)
-            return
-        }
         appState.sessionsSelectedServerFilterId = server.id
         appState.sessionsShowOnlyForks = false
         hasSeededInitialConversationRoute = true

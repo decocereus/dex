@@ -4,6 +4,13 @@ import Observation
 @MainActor
 @Observable
 final class SessionsModel {
+    private struct DexSnapshot: Equatable {
+        let sessionSummaries: [AppSessionSummary]
+        let connectedServers: [HomeDashboardServer]
+        let launchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession]
+        let launchSessionByServerId: [String: DexCompanionBrowserSession]
+    }
+
     struct ThreadEphemeralState: Equatable {
         let hasTurnActive: Bool
         let updatedAt: Date
@@ -16,6 +23,8 @@ final class SessionsModel {
         let ephemeralStateByThreadKey: [ThreadKey: ThreadEphemeralState]
         let activeThreadKey: ThreadKey?
         let frozenMostRecentThreadOrder: [ThreadKey]?
+        let dexLaunchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession]
+        let dexLaunchSessionByServerId: [String: DexCompanionBrowserSession]
     }
 
     private(set) var derivedData: SessionsDerivedData = .empty
@@ -23,6 +32,8 @@ final class SessionsModel {
     private(set) var connectedServers: [HomeDashboardServer] = []
     private(set) var ephemeralStateByThreadKey: [ThreadKey: ThreadEphemeralState] = [:]
     private(set) var activeThreadKey: ThreadKey?
+    private(set) var dexLaunchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession] = [:]
+    private(set) var dexLaunchSessionByServerId: [String: DexCompanionBrowserSession] = [:]
 
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private weak var appState: AppState?
@@ -31,6 +42,13 @@ final class SessionsModel {
     @ObservationIgnored private var observationGeneration = 0
     @ObservationIgnored private var frozenMostRecentThreadOrder: [ThreadKey]?
     @ObservationIgnored private var lastPublishedSnapshot: Snapshot?
+    @ObservationIgnored private var dexSnapshot = DexSnapshot(
+        sessionSummaries: [],
+        connectedServers: [],
+        launchSessionByThreadKey: [:],
+        launchSessionByServerId: [:]
+    )
+    @ObservationIgnored private var dexRefreshTask: Task<Void, Never>?
 
     func bind(appModel: AppModel, appState: AppState) {
         let needsRebind = self.appModel !== appModel || self.appState !== appState
@@ -41,6 +59,7 @@ final class SessionsModel {
         guard needsRebind || !hasInitializedState else { return }
         hasInitializedState = true
         refreshState()
+        refreshDexCompanionState()
     }
 
     func updateSearchQuery(_ query: String) {
@@ -72,10 +91,18 @@ final class SessionsModel {
             let showOnlyForks = appState.sessionsShowOnlyForks
             let workspaceSortMode = WorkspaceSortMode(rawValue: appState.sessionsWorkspaceSortModeRaw) ?? .mostRecent
             let appSnapshot = appModel.snapshot
+            let combinedSessionSummaries = mergeSessionSummaries(
+                native: appSnapshot?.sessionSummaries ?? [],
+                dex: dexSnapshot.sessionSummaries
+            )
 
-            let nextConnectedServers = HomeDashboardSupport.sortedConnectedServers(
+            let nativeConnectedServers = HomeDashboardSupport.sortedConnectedServers(
                 from: appSnapshot?.servers ?? [],
                 activeServerId: appSnapshot?.activeThread?.serverId
+            )
+            let nextConnectedServers = HomeDashboardSupport.mergeServers(
+                native: nativeConnectedServers,
+                dexCompanion: dexSnapshot.connectedServers
             )
 
             let nextConnectedServerOptions = nextConnectedServers.map {
@@ -86,7 +113,7 @@ final class SessionsModel {
                 )
             }
 
-            let nextEphemeralStateByThreadKey = (appSnapshot?.sessionSummaries ?? []).reduce(into: [ThreadKey: ThreadEphemeralState]()) { partialResult, session in
+            let nextEphemeralStateByThreadKey = combinedSessionSummaries.reduce(into: [ThreadKey: ThreadEphemeralState]()) { partialResult, session in
                 partialResult[session.key] = ThreadEphemeralState(
                     hasTurnActive: session.hasActiveTurn,
                     updatedAt: session.updatedAtDate
@@ -94,13 +121,13 @@ final class SessionsModel {
             }
 
             let nextFrozenMostRecentThreadOrder = resolvedFrozenMostRecentThreadOrder(
-                sessionSummaries: appSnapshot?.sessionSummaries ?? [],
+                sessionSummaries: combinedSessionSummaries,
                 workspaceSortMode: workspaceSortMode,
                 previousDisplayedOrder: previousDisplayedOrder
             )
 
             let nextDerivedData = SessionsDerivation.build(
-                sessions: appSnapshot?.sessionSummaries ?? [],
+                sessions: combinedSessionSummaries,
                 selectedServerFilterId: selectedServerFilterId,
                 showOnlyForks: showOnlyForks,
                 workspaceSortMode: workspaceSortMode,
@@ -115,6 +142,9 @@ final class SessionsModel {
                 ephemeralStateByThreadKey: nextEphemeralStateByThreadKey,
                 activeThreadKey: appSnapshot?.activeThread,
                 frozenMostRecentThreadOrder: nextFrozenMostRecentThreadOrder
+                ,
+                dexLaunchSessionByThreadKey: dexSnapshot.launchSessionByThreadKey,
+                dexLaunchSessionByServerId: dexSnapshot.launchSessionByServerId
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -144,8 +174,40 @@ final class SessionsModel {
         if previousSnapshot?.activeThreadKey != snapshot.activeThreadKey {
             activeThreadKey = snapshot.activeThreadKey
         }
+        if previousSnapshot?.dexLaunchSessionByThreadKey != snapshot.dexLaunchSessionByThreadKey {
+            dexLaunchSessionByThreadKey = snapshot.dexLaunchSessionByThreadKey
+        }
+        if previousSnapshot?.dexLaunchSessionByServerId != snapshot.dexLaunchSessionByServerId {
+            dexLaunchSessionByServerId = snapshot.dexLaunchSessionByServerId
+        }
         if previousSnapshot?.derivedData != snapshot.derivedData {
             derivedData = snapshot.derivedData
+        }
+    }
+
+    private func refreshDexCompanionState() {
+        dexRefreshTask?.cancel()
+        dexRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let snapshot = await DexCompanionDashboardIndex.load(limit: 200)
+            guard !Task.isCancelled else { return }
+            self.dexSnapshot = DexSnapshot(
+                sessionSummaries: snapshot.sessionSummaries,
+                connectedServers: snapshot.connectedServers,
+                launchSessionByThreadKey: snapshot.launchSessionByThreadKey,
+                launchSessionByServerId: snapshot.launchSessionByServerId
+            )
+            self.refreshState()
+        }
+    }
+
+    private func mergeSessionSummaries(
+        native: [AppSessionSummary],
+        dex: [AppSessionSummary]
+    ) -> [AppSessionSummary] {
+        var seen = Set<ThreadKey>()
+        return (native + dex).filter { summary in
+            seen.insert(summary.key).inserted
         }
     }
 

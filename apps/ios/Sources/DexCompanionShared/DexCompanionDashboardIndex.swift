@@ -6,12 +6,18 @@ enum DexCompanionDashboardIndex {
     struct Snapshot: Equatable {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
+        let sessionSummaries: [AppSessionSummary]
+        let launchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession]
+        let launchSessionByServerId: [String: DexCompanionBrowserSession]
     }
 
     static func load(limit: Int = 10) async -> Snapshot {
         let savedSessions = DexCompanionSessionStore.load()
         var connectedServers: [HomeDashboardServer] = []
         var recentSessions: [HomeDashboardRecentSession] = []
+        var sessionSummaries: [AppSessionSummary] = []
+        var launchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession] = [:]
+        var launchSessionByServerId: [String: DexCompanionBrowserSession] = [:]
 
         for savedSession in savedSessions {
             guard let browserSession = savedSession.makeBrowserSession() else {
@@ -40,11 +46,10 @@ enum DexCompanionDashboardIndex {
             } ?? shellSnapshot.projects.first
 
             let serverLaunchSession = browserSession.withNavigation(
-                initialPath: latestThread.map {
-                    dexThreadPath(environmentId: browserSession.environmentId, threadId: $0.id)
-                } ?? dexChatRootPath(),
+                initialPath: dexChatRootPath(),
                 navigationTitle: browserSession.serverLabel
             )
+            launchSessionByServerId[serverId] = serverLaunchSession
 
             connectedServers.append(
                 HomeDashboardServer(
@@ -67,13 +72,37 @@ enum DexCompanionDashboardIndex {
             let sessionRows = sortedThreads.prefix(limit).compactMap { thread -> HomeDashboardRecentSession? in
                 let project = shellSnapshot.projects.first(where: { $0.id == thread.projectId })
                 let updatedAt = parseDate(thread.updatedAt)
+                let threadKey = ThreadKey(serverId: serverId, threadId: thread.id)
                 let launchSession = browserSession.withNavigation(
                     initialPath: dexThreadPath(environmentId: browserSession.environmentId, threadId: thread.id),
                     navigationTitle: thread.title
                 )
+                launchSessionByThreadKey[threadKey] = launchSession
+
+                sessionSummaries.append(
+                    AppSessionSummary(
+                        key: threadKey,
+                        serverDisplayName: browserSession.serverLabel,
+                        serverHost: host,
+                        title: thread.title,
+                        preview: "",
+                        cwd: project?.workspaceRoot ?? "",
+                        model: "",
+                        modelProvider: "Dex",
+                        parentThreadId: nil,
+                        agentNickname: nil,
+                        agentRole: nil,
+                        agentDisplayLabel: nil,
+                        agentStatus: .unknown,
+                        updatedAt: Int64(updatedAt.timeIntervalSince1970),
+                        hasActiveTurn: isActiveTurnState(thread.latestTurn?.state),
+                        isSubagent: false,
+                        isFork: false
+                    )
+                )
 
                 return HomeDashboardRecentSession(
-                    key: ThreadKey(serverId: serverId, threadId: thread.id),
+                    key: threadKey,
                     serverId: serverId,
                     serverDisplayName: browserSession.serverLabel,
                     sessionTitle: thread.title,
@@ -93,7 +122,10 @@ enum DexCompanionDashboardIndex {
                 native: [],
                 dexCompanion: recentSessions,
                 limit: limit
-            )
+            ),
+            sessionSummaries: sessionSummaries.sorted { $0.updatedAtDate > $1.updatedAtDate },
+            launchSessionByThreadKey: launchSessionByThreadKey,
+            launchSessionByServerId: launchSessionByServerId
         )
     }
 

@@ -19,6 +19,7 @@ struct SessionsScreen: View {
     @State private var debouncedSessionSearchQuery = ""
     @State private var isForkingActiveThread = false
     @State private var sessionActionErrorMessage: String?
+    @State private var activeDexCompanionSession: DexCompanionBrowserSession?
     @State private var renamingThreadKey: ThreadKey?
     @State private var renameCurrentTitle = ""
     @State private var renameDraft = ""
@@ -74,33 +75,37 @@ struct SessionsScreen: View {
         let lifecycle = attachLifecycleHandlers(to: base, derived: derived)
         let alerts = attachSheetAndAlerts(to: lifecycle)
 
-        return alerts.sheet(item: $directoryPickerSheet) { _ in
-            NavigationStack {
-                DirectoryPickerView(
-                    servers: connectedServerOptions,
-                    selectedServerId: Binding(
-                        get: { directoryPickerSheet?.selectedServerId ?? defaultNewSessionServerId() ?? "" },
-                        set: { nextServerId in
+        return alerts
+            .sheet(item: $directoryPickerSheet) { _ in
+                NavigationStack {
+                    DirectoryPickerView(
+                        servers: connectedServerOptions,
+                        selectedServerId: Binding(
+                            get: { directoryPickerSheet?.selectedServerId ?? defaultNewSessionServerId() ?? "" },
+                            set: { nextServerId in
+                                guard var sheet = directoryPickerSheet else { return }
+                                sheet.selectedServerId = nextServerId
+                                directoryPickerSheet = sheet
+                            }
+                        ),
+                        onServerChanged: { nextServerId in
                             guard var sheet = directoryPickerSheet else { return }
                             sheet.selectedServerId = nextServerId
                             directoryPickerSheet = sheet
+                        },
+                        onDirectorySelected: { serverId, cwd in
+                            directoryPickerSheet = nil
+                            Task { await startNewSession(serverId: serverId, cwd: cwd) }
+                        },
+                        onDismissRequested: {
+                            directoryPickerSheet = nil
                         }
-                    ),
-                    onServerChanged: { nextServerId in
-                        guard var sheet = directoryPickerSheet else { return }
-                        sheet.selectedServerId = nextServerId
-                        directoryPickerSheet = sheet
-                    },
-                    onDirectorySelected: { serverId, cwd in
-                        directoryPickerSheet = nil
-                        Task { await startNewSession(serverId: serverId, cwd: cwd) }
-                    },
-                    onDismissRequested: {
-                        directoryPickerSheet = nil
-                    }
-                )
+                    )
+                }
             }
-        }
+            .sheet(item: $activeDexCompanionSession) { session in
+                DexCompanionWebScreen(session: session)
+            }
     }
 
     private func attachLifecycleHandlers<Content: View>(
@@ -298,6 +303,14 @@ struct SessionsScreen: View {
 
     private var connectedServers: [HomeDashboardServer] {
         sessionsModel.connectedServers
+    }
+
+    private var dexLaunchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession] {
+        sessionsModel.dexLaunchSessionByThreadKey
+    }
+
+    private var dexLaunchSessionByServerId: [String: DexCompanionBrowserSession] {
+        sessionsModel.dexLaunchSessionByServerId
     }
 
     private var ephemeralStateByThreadKey: [ThreadKey: SessionsModel.ThreadEphemeralState] {
@@ -647,18 +660,22 @@ struct SessionsScreen: View {
                                         sessionRowContextMenu(thread)
                                     }
                                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                        Button {
-                                            Task { await forkThread(thread) }
-                                        } label: {
-                                            Label("Fork", systemImage: "arrow.triangle.branch")
+                                        if dexLaunchSessionByThreadKey[thread.key] == nil {
+                                            Button {
+                                                Task { await forkThread(thread) }
+                                            } label: {
+                                                Label("Fork", systemImage: "arrow.triangle.branch")
+                                            }
+                                            .tint(LitterTheme.accent)
                                         }
-                                        .tint(LitterTheme.accent)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        Button(role: .destructive) {
-                                            archiveTargetKey = thread.key
-                                        } label: {
-                                            Label("Delete", systemImage: "trash")
+                                        if dexLaunchSessionByThreadKey[thread.key] == nil {
+                                            Button(role: .destructive) {
+                                                archiveTargetKey = thread.key
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
                                         }
                                     }
                                 }
@@ -690,24 +707,26 @@ struct SessionsScreen: View {
 
     @ViewBuilder
     private func sessionRowContextMenu(_ thread: AppSessionSummary) -> some View {
-        Button {
-            renamingThreadKey = thread.key
-            renameCurrentTitle = thread.sessionTitle
-            renameDraft = ""
-        } label: {
-            Label("Rename", systemImage: "pencil")
-        }
+        if dexLaunchSessionByThreadKey[thread.key] == nil {
+            Button {
+                renamingThreadKey = thread.key
+                renameCurrentTitle = thread.sessionTitle
+                renameDraft = ""
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
 
-        Button {
-            Task { await forkThread(thread) }
-        } label: {
-            Label("Fork", systemImage: "arrow.triangle.branch")
-        }
+            Button {
+                Task { await forkThread(thread) }
+            } label: {
+                Label("Fork", systemImage: "arrow.triangle.branch")
+            }
 
-        Button(role: .destructive) {
-            archiveTargetKey = thread.key
-        } label: {
-            Label("Delete", systemImage: "trash")
+            Button(role: .destructive) {
+                archiveTargetKey = thread.key
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
     }
 
@@ -1065,6 +1084,10 @@ struct SessionsScreen: View {
     }
 
     private func resumeSession(_ thread: AppSessionSummary) async {
+        if let launchSession = dexLaunchSessionByThreadKey[thread.key] {
+            activeDexCompanionSession = launchSession
+            return
+        }
         guard resumingKey == nil else { return }
         resumingKey = thread.key
         sessionActionErrorMessage = nil
@@ -1098,6 +1121,10 @@ struct SessionsScreen: View {
     }
 
     private func startNewSession(serverId: String, cwd: String) async {
+        if let launchSession = dexLaunchSessionByServerId[serverId] {
+            activeDexCompanionSession = launchSession
+            return
+        }
         guard !isStartingNewSession else { return }
         isStartingNewSession = true
         defer { isStartingNewSession = false }
@@ -1130,6 +1157,10 @@ struct SessionsScreen: View {
     }
 
     private func forkThread(_ thread: AppSessionSummary) async {
+        if let launchSession = dexLaunchSessionByThreadKey[thread.key] {
+            activeDexCompanionSession = launchSession
+            return
+        }
         guard !isForkingActiveThread else { return }
         isForkingActiveThread = true
         defer { isForkingActiveThread = false }
@@ -1166,6 +1197,12 @@ struct SessionsScreen: View {
 
     private func submitRename() async {
         guard let key = renamingThreadKey else { return }
+        guard dexLaunchSessionByThreadKey[key] == nil else {
+            renamingThreadKey = nil
+            renameCurrentTitle = ""
+            renameDraft = ""
+            return
+        }
         let nextTitle = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !nextTitle.isEmpty else { return }
         do {
@@ -1183,6 +1220,10 @@ struct SessionsScreen: View {
 
     private func confirmArchiveSession() async {
         guard let key = archiveTargetKey else { return }
+        guard dexLaunchSessionByThreadKey[key] == nil else {
+            archiveTargetKey = nil
+            return
+        }
         do {
             _ = try await appModel.client.archiveThread(
                 serverId: key.serverId,
