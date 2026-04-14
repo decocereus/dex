@@ -1356,6 +1356,25 @@ final class AppModel {
         )
     }
 
+    func setThreadCollaborationMode(key: ThreadKey, mode: AppModeKind) async throws {
+        if try await setDexThreadCollaborationModeIfNeeded(key: key, mode: mode) {
+            return
+        }
+        try await store.setThreadCollaborationMode(key: key, mode: mode)
+    }
+
+    func setThreadPermissions(
+        key: ThreadKey,
+        approvalPolicy: AppAskForApproval?,
+        sandboxMode: AppSandboxMode?
+    ) async throws {
+        _ = try await setDexThreadPermissionsIfNeeded(
+            key: key,
+            approvalPolicy: approvalPolicy,
+            sandboxMode: sandboxMode
+        )
+    }
+
     private func dexClient(for serverId: String) -> DexCompanionClient? {
         guard let browserSession = DexCompanionRouting.browserSession(forServerId: serverId) else {
             return nil
@@ -1364,6 +1383,23 @@ final class AppModel {
             httpBaseUrl: browserSession.httpBaseUrl,
             bearerToken: browserSession.bearerToken
         )
+    }
+
+    private func applyDexThreadSnapshot(
+        key: ThreadKey,
+        browserSession: DexCompanionBrowserSession,
+        nativeSnapshot: DexNativeThreadSnapshot
+    ) {
+        let overlay = DexNativeThreadAdapter.makeOverlay(
+            serverId: key.serverId,
+            browserSession: browserSession,
+            snapshot: nativeSnapshot
+        )
+        dexServerSnapshots[key.serverId] = overlay.serverSnapshot
+        dexThreadSnapshots[key] = overlay.threadSnapshot
+        dexPendingApprovalsByThread[key] = overlay.pendingApprovals
+        dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
+        snapshotRevision &+= 1
     }
 
     private func startDexThreadStreamIfNeeded(for key: ThreadKey?) {
@@ -1433,16 +1469,11 @@ final class AppModel {
         }
 
         let nativeSnapshot = try await client.fetchNativeThreadSnapshot(threadId: key.threadId)
-        let overlay = DexNativeThreadAdapter.makeOverlay(
-            serverId: key.serverId,
+        applyDexThreadSnapshot(
+            key: key,
             browserSession: browserSession,
-            snapshot: nativeSnapshot
+            nativeSnapshot: nativeSnapshot
         )
-        dexServerSnapshots[key.serverId] = overlay.serverSnapshot
-        dexThreadSnapshots[key] = overlay.threadSnapshot
-        dexPendingApprovalsByThread[key] = overlay.pendingApprovals
-        dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
-        snapshotRevision &+= 1
     }
 
     private func startDexTurnIfNeeded(
@@ -1477,14 +1508,31 @@ final class AppModel {
             ]
         }
 
-        let interactionMode: String = {
-            if let thread = threadSnapshot(for: key), thread.collaborationMode == .plan {
-                return "plan"
-            }
-            return "default"
-        }()
+        let currentThread = threadSnapshot(for: key)
+        let interactionMode = dexInteractionMode(from: currentThread?.collaborationMode ?? .default)
+        let runtimeMode = dexRuntimeMode(
+            approvalPolicy: payload.approvalPolicy ?? currentThread?.effectiveApprovalPolicy,
+            sandboxMode: payload.sandboxPolicy?.launchOverrideMode
+                ?? currentThread?.effectiveSandboxPolicy?.launchOverrideMode,
+            fallback: currentDexRuntimeMode(for: key)
+        )
+        let modelSelection = dexCodexModelSelectionPayload(
+            model: payload.model,
+            effort: payload.effort,
+            serviceTier: payload.serviceTier,
+            fallbackModel: currentThread?.resolvedModel
+        )
 
-        _ = try await client.dispatchCommand([
+        try await configureDexThreadIfNeeded(
+            client: client,
+            key: key,
+            title: nil,
+            modelSelection: modelSelection,
+            runtimeMode: runtimeMode,
+            interactionMode: interactionMode
+        )
+
+        var command: [String: Any] = [
             "type": "thread.turn.start",
             "commandId": UUID().uuidString,
             "threadId": key.threadId,
@@ -1494,12 +1542,164 @@ final class AppModel {
                 "text": text,
                 "attachments": attachments,
             ],
-            "runtimeMode": "full-access",
+            "runtimeMode": runtimeMode,
             "interactionMode": interactionMode,
             "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ])
+        ]
+        if let modelSelection {
+            command["modelSelection"] = modelSelection
+        }
+        _ = try await client.dispatchCommand(command)
         try await refreshDexThreadSnapshot(key: key)
         return true
+    }
+
+    private func currentDexRuntimeMode(for key: ThreadKey) -> String {
+        let currentThread = threadSnapshot(for: key)
+        return dexRuntimeMode(
+            approvalPolicy: currentThread?.effectiveApprovalPolicy,
+            sandboxMode: currentThread?.effectiveSandboxPolicy?.launchOverrideMode,
+            fallback: "full-access"
+        )
+    }
+
+    private func dexRuntimeMode(
+        approvalPolicy: AppAskForApproval?,
+        sandboxMode: AppSandboxMode?,
+        fallback: String
+    ) -> String {
+        switch (approvalPolicy, sandboxMode) {
+        case (.never?, .dangerFullAccess?):
+            return "full-access"
+        case (.onRequest?, .workspaceWrite?),
+             (.onFailure?, .workspaceWrite?),
+             (.unlessTrusted?, .workspaceWrite?):
+            return "auto-accept-edits"
+        case (.unlessTrusted?, .readOnly?),
+             (.onRequest?, .readOnly?),
+             (.onFailure?, .readOnly?):
+            return "approval-required"
+        case (.never?, _):
+            return "full-access"
+        case (_, .dangerFullAccess?):
+            return "full-access"
+        case (_, .workspaceWrite?):
+            return "auto-accept-edits"
+        case (_, .readOnly?):
+            return "approval-required"
+        case (.unlessTrusted?, _),
+             (.onRequest?, _),
+             (.onFailure?, _):
+            return "approval-required"
+        default:
+            return fallback
+        }
+    }
+
+    private func dexInteractionMode(from mode: AppModeKind) -> String {
+        mode == .plan ? "plan" : "default"
+    }
+
+    private func dexCodexModelSelectionPayload(
+        model: String?,
+        effort: ReasoningEffort?,
+        serviceTier: ServiceTier?,
+        fallbackModel: String?
+    ) -> [String: Any]? {
+        let resolvedModel = (
+            model?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? model
+                : fallbackModel
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var codexOptions: [String: Any] = [:]
+        if let effort {
+            codexOptions["reasoningEffort"] = effort.wireValue
+        }
+        if serviceTier == .fast {
+            codexOptions["fastMode"] = true
+        }
+
+        guard let resolvedModel, !resolvedModel.isEmpty else {
+            return codexOptions.isEmpty ? nil : nil
+        }
+
+        var modelSelection: [String: Any] = [
+            "provider": "codex",
+            "model": resolvedModel,
+        ]
+        if !codexOptions.isEmpty {
+            modelSelection["options"] = ["codex": codexOptions]
+        }
+        return modelSelection
+    }
+
+    private func shouldPersistDexModelSelection(
+        currentThread: AppThreadSnapshot?,
+        requestedModelSelection: [String: Any]?
+    ) -> Bool {
+        guard let requestedModelSelection else {
+            return false
+        }
+        let requestedModel = (requestedModelSelection["model"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedOptions = requestedModelSelection["options"] as? [String: Any]
+        let requestedCodexOptions = requestedOptions?["codex"] as? [String: Any]
+        let requestedEffort = (requestedCodexOptions?["reasoningEffort"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedFastMode = requestedCodexOptions?["fastMode"] as? Bool ?? false
+
+        let currentModel = currentThread?.resolvedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentEffort = currentThread?.reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let requestedModel, !requestedModel.isEmpty, requestedModel != currentModel {
+            return true
+        }
+        if let requestedEffort, !requestedEffort.isEmpty, requestedEffort != currentEffort {
+            return true
+        }
+        return requestedFastMode
+    }
+
+    private func configureDexThreadIfNeeded(
+        client: DexCompanionClient,
+        key: ThreadKey,
+        title: String?,
+        modelSelection: [String: Any]?,
+        runtimeMode: String?,
+        interactionMode: String?
+    ) async throws {
+        guard let browserSession = DexCompanionRouting.browserSession(forServerId: key.serverId) else {
+            return
+        }
+
+        let currentThread = threadSnapshot(for: key)
+        let currentInteractionMode = dexInteractionMode(from: currentThread?.collaborationMode ?? .default)
+        let currentRuntimeMode = currentDexRuntimeMode(for: key)
+        let needsModelUpdate = shouldPersistDexModelSelection(
+            currentThread: currentThread,
+            requestedModelSelection: modelSelection
+        )
+
+        let shouldConfigure =
+            title != nil ||
+            needsModelUpdate ||
+            (runtimeMode != nil && runtimeMode != currentRuntimeMode) ||
+            (interactionMode != nil && interactionMode != currentInteractionMode)
+        guard shouldConfigure else { return }
+
+        let nativeSnapshot = try await client.configureNativeThread(
+            threadId: key.threadId,
+            title: title,
+            modelSelection: needsModelUpdate ? modelSelection : nil,
+            runtimeMode: runtimeMode != currentRuntimeMode ? runtimeMode : nil,
+            interactionMode: interactionMode != currentInteractionMode ? interactionMode : nil
+        )
+        applyDexThreadSnapshot(
+            key: key,
+            browserSession: browserSession,
+            nativeSnapshot: nativeSnapshot
+        )
     }
 
     func loadDexServerAuthStateIfNeeded(serverId: String) async {
@@ -1600,13 +1800,14 @@ final class AppModel {
         guard let client = dexClient(for: key.serverId) else {
             return false
         }
-        _ = try await client.dispatchCommand([
-            "type": "thread.meta.update",
-            "commandId": UUID().uuidString,
-            "threadId": key.threadId,
-            "title": name,
-        ])
-        try await refreshDexThreadSnapshot(key: key)
+        try await configureDexThreadIfNeeded(
+            client: client,
+            key: key,
+            title: name,
+            modelSelection: nil,
+            runtimeMode: nil,
+            interactionMode: nil
+        )
         return true
     }
 
@@ -1614,11 +1815,7 @@ final class AppModel {
         guard let client = dexClient(for: key.serverId) else {
             return false
         }
-        _ = try await client.dispatchCommand([
-            "type": "thread.archive",
-            "commandId": UUID().uuidString,
-            "threadId": key.threadId,
-        ])
+        _ = try await client.archiveNativeThread(threadId: key.threadId)
         dexThreadSnapshots.removeValue(forKey: key)
         dexPendingApprovalsByThread.removeValue(forKey: key)
         dexPendingUserInputsByThread.removeValue(forKey: key)
@@ -1626,39 +1823,90 @@ final class AppModel {
         return true
     }
 
+    private func setDexThreadCollaborationModeIfNeeded(
+        key: ThreadKey,
+        mode: AppModeKind
+    ) async throws -> Bool {
+        guard let client = dexClient(for: key.serverId) else {
+            return false
+        }
+        try await configureDexThreadIfNeeded(
+            client: client,
+            key: key,
+            title: nil,
+            modelSelection: nil,
+            runtimeMode: nil,
+            interactionMode: dexInteractionMode(from: mode)
+        )
+        return true
+    }
+
+    private func setDexThreadPermissionsIfNeeded(
+        key: ThreadKey,
+        approvalPolicy: AppAskForApproval?,
+        sandboxMode: AppSandboxMode?
+    ) async throws -> Bool {
+        guard let client = dexClient(for: key.serverId) else {
+            return false
+        }
+        try await configureDexThreadIfNeeded(
+            client: client,
+            key: key,
+            title: nil,
+            modelSelection: nil,
+            runtimeMode: dexRuntimeMode(
+                approvalPolicy: approvalPolicy,
+                sandboxMode: sandboxMode,
+                fallback: currentDexRuntimeMode(for: key)
+            ),
+            interactionMode: nil
+        )
+        return true
+    }
+
     func startDexThread(
         serverId: String,
         cwd: String?,
-        model: String?
+        model: String?,
+        reasoningEffort: String? = nil,
+        approvalPolicy: AppAskForApproval? = nil,
+        sandboxMode: AppSandboxMode? = nil,
+        fastMode: Bool = false,
+        interactionMode: AppModeKind = .default
     ) async throws -> ThreadKey? {
         guard let projectId = DexCompanionRouting.projectId(fromServerId: serverId),
-              let client = dexClient(for: serverId)
+              let client = dexClient(for: serverId),
+              let browserSession = DexCompanionRouting.browserSession(forServerId: serverId)
         else {
             return nil
         }
 
         let threadId = UUID().uuidString
-        _ = try await client.dispatchCommand([
-            "type": "thread.create",
-            "commandId": UUID().uuidString,
-            "threadId": threadId,
-            "projectId": projectId,
-            "title": "New Session",
-            "modelSelection": [
-                "provider": "codex",
-                "model": (model?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                    ? model!
-                    : "gpt-5-codex"),
-            ],
-            "runtimeMode": "full-access",
-            "interactionMode": "default",
-            "branch": NSNull(),
-            "worktreePath": cwd?.isEmpty == false ? cwd! : NSNull(),
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ])
+        let nativeSnapshot = try await client.createNativeThread(
+            projectId: projectId,
+            title: "New Session",
+            modelSelection: dexCodexModelSelectionPayload(
+                model: model,
+                effort: ReasoningEffort(wireValue: reasoningEffort),
+                serviceTier: fastMode ? .fast : nil,
+                fallbackModel: "gpt-5.4"
+            ),
+            runtimeMode: dexRuntimeMode(
+                approvalPolicy: approvalPolicy,
+                sandboxMode: sandboxMode,
+                fallback: "full-access"
+            ),
+            interactionMode: dexInteractionMode(from: interactionMode),
+            branch: nil,
+            worktreePath: cwd?.isEmpty == false ? cwd! : nil
+        )
 
         let key = ThreadKey(serverId: serverId, threadId: threadId)
-        try await refreshDexThreadSnapshot(key: key)
+        applyDexThreadSnapshot(
+            key: key,
+            browserSession: browserSession,
+            nativeSnapshot: nativeSnapshot
+        )
         return key
     }
 

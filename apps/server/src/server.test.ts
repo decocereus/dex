@@ -1240,6 +1240,265 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("allows paired companion clients to create native companion threads", () =>
+    Effect.gen(function* () {
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      let createdThread: OrchestrationReadModel["threads"][number] | null = null;
+      const dispatchedCommands: OrchestrationCommand[] = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                if (command.type === "thread.create") {
+                  createdThread = {
+                    ...baseReadModel.threads[0]!,
+                    id: command.threadId,
+                    projectId: command.projectId,
+                    title: command.title,
+                    modelSelection: command.modelSelection,
+                    runtimeMode: command.runtimeMode,
+                    interactionMode: command.interactionMode,
+                    branch: command.branch,
+                    worktreePath: command.worktreePath,
+                    createdAt: command.createdAt,
+                    updatedAt: command.createdAt,
+                    archivedAt: null,
+                    deletedAt: null,
+                    messages: [],
+                    activities: [],
+                    checkpoints: [],
+                    proposedPlans: [],
+                    latestTurn: null,
+                    session: null,
+                  };
+                }
+                return { sequence: dispatchedCommands.length };
+              }),
+          },
+          projectionSnapshotQuery: {
+            getThreadDetailById: (threadId) =>
+              Effect.succeed(
+                createdThread?.id === threadId
+                  ? Option.some(createdThread)
+                  : Option.none<OrchestrationReadModel["threads"][number]>(),
+              ),
+          },
+        },
+      });
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const createUrl = yield* getHttpServerUrl("/api/companion/native/thread/create");
+      const response = yield* Effect.promise(() =>
+        fetch(createUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            projectId: defaultProjectId,
+            title: "Paired iPhone thread",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "approval-required",
+            interactionMode: "plan",
+            worktreePath: "/tmp/default-project",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly summary: {
+          readonly title: string;
+          readonly runtimeMode: string;
+          readonly interactionMode: string;
+          readonly threadRef: { readonly threadId: string };
+        };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(dispatchedCommands[0]?.type, "thread.create");
+      assert.equal(body.summary.title, "Paired iPhone thread");
+      assert.equal(body.summary.runtimeMode, "approval-required");
+      assert.equal(body.summary.interactionMode, "plan");
+      assert.equal(
+        body.summary.threadRef.threadId,
+        dispatchedCommands.find(
+          (command): command is Extract<OrchestrationCommand, { type: "thread.create" }> =>
+            command.type === "thread.create",
+        )?.threadId,
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("allows paired companion clients to configure native companion threads", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      let configuredThread: OrchestrationReadModel["threads"][number] = {
+        ...baseReadModel.threads[0]!,
+        title: "Default Thread",
+        modelSelection: defaultModelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        updatedAt: now,
+      };
+      const dispatchedCommands: OrchestrationCommand[] = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                switch (command.type) {
+                  case "thread.meta.update":
+                    configuredThread = {
+                      ...configuredThread,
+                      ...(command.title !== undefined ? { title: command.title } : {}),
+                      ...(command.modelSelection !== undefined
+                        ? { modelSelection: command.modelSelection }
+                        : {}),
+                      updatedAt: new Date().toISOString(),
+                    };
+                    break;
+                  case "thread.runtime-mode.set":
+                    configuredThread = {
+                      ...configuredThread,
+                      runtimeMode: command.runtimeMode,
+                      updatedAt: new Date().toISOString(),
+                    };
+                    break;
+                  case "thread.interaction-mode.set":
+                    configuredThread = {
+                      ...configuredThread,
+                      interactionMode: command.interactionMode,
+                      updatedAt: new Date().toISOString(),
+                    };
+                    break;
+                  default:
+                    break;
+                }
+                return { sequence: dispatchedCommands.length };
+              }),
+          },
+          projectionSnapshotQuery: {
+            getThreadDetailById: (threadId) =>
+              Effect.succeed(
+                threadId === defaultThreadId
+                  ? Option.some(configuredThread)
+                  : Option.none<OrchestrationReadModel["threads"][number]>(),
+              ),
+          },
+        },
+      });
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const configureUrl = yield* getHttpServerUrl("/api/companion/native/thread/configure");
+      const response = yield* Effect.promise(() =>
+        fetch(configureUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            threadId: defaultThreadId,
+            title: "Renamed on iPhone",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4",
+              options: {
+                codex: {
+                  reasoningEffort: "high",
+                },
+              },
+            },
+            runtimeMode: "approval-required",
+            interactionMode: "plan",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly summary: {
+          readonly title: string;
+          readonly runtimeMode: string;
+          readonly interactionMode: string;
+          readonly model: string;
+        };
+      };
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        dispatchedCommands.map((command) => command.type),
+        ["thread.meta.update", "thread.runtime-mode.set", "thread.interaction-mode.set"],
+      );
+      assert.equal(body.summary.title, "Renamed on iPhone");
+      assert.equal(body.summary.model, "gpt-5.4");
+      assert.equal(body.summary.runtimeMode, "approval-required");
+      assert.equal(body.summary.interactionMode, "plan");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("rejects non-owner companion dispatch for disallowed command types", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();

@@ -9,7 +9,7 @@ struct HeaderView: View {
     @AppStorage("fastMode") private var fastMode = false
 
     private var server: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
+        appModel.serverSnapshot(for: thread.key.serverId)
     }
 
     private var availableModels: [ModelInfo] {
@@ -273,7 +273,7 @@ struct ConversationToolbarControls: View {
     @State private var remoteAuthSession: RemoteAuthSession?
 
     private var server: AppServerSnapshot? {
-        appModel.snapshot?.serverSnapshot(for: thread.key.serverId)
+        appModel.serverSnapshot(for: thread.key.serverId)
     }
 
     var body: some View {
@@ -493,7 +493,7 @@ struct InlineModelSelectorView: View {
                 Button {
                     let next: AppModeKind = collaborationMode == .plan ? .default : .plan
                     Task {
-                        try? await appModel.store.setThreadCollaborationMode(
+                        try? await appModel.setThreadCollaborationMode(
                             key: threadKey, mode: next
                         )
                     }
@@ -530,8 +530,22 @@ struct InlineModelSelectorView: View {
                 Button {
                     if isFullAccess {
                         appState.setPermissions(approvalPolicy: "on-request", sandboxMode: "workspace-write", for: threadKey)
+                        Task {
+                            try? await appModel.setThreadPermissions(
+                                key: threadKey,
+                                approvalPolicy: .onRequest,
+                                sandboxMode: .workspaceWrite
+                            )
+                        }
                     } else {
                         appState.setPermissions(approvalPolicy: "never", sandboxMode: "danger-full-access", for: threadKey)
+                        Task {
+                            try? await appModel.setThreadPermissions(
+                                key: threadKey,
+                                approvalPolicy: .never,
+                                sandboxMode: .dangerFullAccess
+                            )
+                        }
                     }
                 } label: {
                     HStack(spacing: 4) {

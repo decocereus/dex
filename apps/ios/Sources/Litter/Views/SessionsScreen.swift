@@ -1112,10 +1112,15 @@ struct SessionsScreen: View {
         if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
             do {
                 let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                let selectedEffort = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let key = try await appModel.startDexThread(
                     serverId: serverId,
                     cwd: cwd,
-                    model: selectedModel.isEmpty ? nil : selectedModel
+                    model: selectedModel.isEmpty ? nil : selectedModel,
+                    reasoningEffort: selectedEffort.isEmpty ? nil : selectedEffort,
+                    approvalPolicy: appState.launchApprovalPolicy(for: nil),
+                    sandboxMode: appState.launchSandboxMode(for: nil),
+                    fastMode: UserDefaults.standard.bool(forKey: "fastMode")
                 ) else {
                     sessionActionErrorMessage = "Failed to create session."
                     return
@@ -1160,6 +1165,10 @@ struct SessionsScreen: View {
 
     private func forkThread(_ thread: AppSessionSummary) async {
         guard !isForkingActiveThread else { return }
+        if DexCompanionRouting.environmentId(fromServerId: thread.key.serverId) != nil {
+            sessionActionErrorMessage = "Fork isn't available for paired Mac threads yet."
+            return
+        }
         isForkingActiveThread = true
         defer { isForkingActiveThread = false }
         do {

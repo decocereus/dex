@@ -41,7 +41,7 @@ enum DexNativeThreadAdapter {
             account: nil,
             requiresOpenaiAuth: false,
             rateLimits: nil,
-            availableModels: nil,
+            availableModels: syntheticAvailableModels(from: snapshot),
             connectionProgress: nil
         )
 
@@ -87,9 +87,9 @@ enum DexNativeThreadAdapter {
             info: threadInfo,
             collaborationMode: collaborationMode(from: snapshot.summary.interactionMode),
             model: snapshot.summary.model,
-            reasoningEffort: nil,
-            effectiveApprovalPolicy: nil,
-            effectiveSandboxPolicy: nil,
+            reasoningEffort: reasoningEffort(from: snapshot.thread),
+            effectiveApprovalPolicy: effectiveApprovalPolicy(from: snapshot.summary.runtimeMode),
+            effectiveSandboxPolicy: effectiveSandboxPolicy(from: snapshot.summary.runtimeMode),
             hydratedConversationItems: hydratedConversationItems(from: snapshot.thread),
             queuedFollowUps: [],
             activeTurnId: snapshot.thread.messages.last?.turnId,
@@ -172,6 +172,86 @@ enum DexNativeThreadAdapter {
         value == "plan" ? .plan : .default
     }
 
+    private static func reasoningEffort(
+        from thread: DexNativeOrchestrationThread
+    ) -> String? {
+        thread.modelSelection?.options?.codex?.reasoningEffort?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+    }
+
+    private static func effectiveApprovalPolicy(from runtimeMode: String) -> AppAskForApproval? {
+        switch runtimeMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "approval-required":
+            return .unlessTrusted
+        case "auto-accept-edits":
+            return .onRequest
+        case "full-access":
+            return .never
+        default:
+            return nil
+        }
+    }
+
+    private static func effectiveSandboxPolicy(from runtimeMode: String) -> AppSandboxPolicy? {
+        switch runtimeMode.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "approval-required":
+            return .readOnly(
+                access: .restricted(includePlatformDefaults: true, readableRoots: []),
+                networkAccess: false
+            )
+        case "auto-accept-edits":
+            return .workspaceWrite(
+                writableRoots: [],
+                readOnlyAccess: .fullAccess,
+                networkAccess: true,
+                excludeTmpdirEnvVar: false,
+                excludeSlashTmp: false
+            )
+        case "full-access":
+            return .dangerFullAccess
+        default:
+            return nil
+        }
+    }
+
+    private static func syntheticAvailableModels(
+        from snapshot: DexNativeThreadSnapshot
+    ) -> [ModelInfo]? {
+        let currentModel = snapshot.summary.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !currentModel.isEmpty else { return nil }
+
+        let defaultEffort = ReasoningEffort(
+            wireValue: reasoningEffort(from: snapshot.thread)
+        ) ?? .medium
+
+        return [
+            ModelInfo(
+                id: currentModel,
+                model: currentModel,
+                upgrade: nil,
+                upgradeModel: nil,
+                upgradeCopy: nil,
+                modelLink: nil,
+                migrationMarkdown: nil,
+                availabilityNuxMessage: nil,
+                displayName: currentModel,
+                description: "Current Dex model",
+                hidden: false,
+                supportedReasoningEfforts: [
+                    ReasoningEffortOption(reasoningEffort: .low, description: "Fast"),
+                    ReasoningEffortOption(reasoningEffort: .medium, description: "Balanced"),
+                    ReasoningEffortOption(reasoningEffort: .high, description: "Deeper reasoning"),
+                    ReasoningEffortOption(reasoningEffort: .xHigh, description: "Maximum reasoning"),
+                ],
+                defaultReasoningEffort: defaultEffort,
+                inputModalities: [.text, .image],
+                supportsPersonality: true,
+                isDefault: true
+            ),
+        ]
+    }
+
     private static func approvalKind(from value: String?) -> ApprovalKind {
         switch value {
         case "file-change":
@@ -236,5 +316,11 @@ enum DexNativeThreadAdapter {
         }
 
         return items
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

@@ -675,6 +675,10 @@ struct ConversationInfoView: View {
 
     private func forkConversation() async {
         guard let threadKey else { return }
+        if DexCompanionRouting.environmentId(fromServerId: threadKey.serverId) != nil {
+            LLog.info("info", "fork is not available for paired dex threads yet")
+            return
+        }
         do {
             let sourceKey = await appModel.hydrateThreadPermissions(for: threadKey, appState: appState)
                 ?? threadKey

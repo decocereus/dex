@@ -138,12 +138,31 @@ struct DexNativeOrchestrationMessage: Codable, Equatable {
     let updatedAt: String
 }
 
+struct DexNativeCodexModelOptions: Codable, Equatable {
+    let reasoningEffort: String?
+    let fastMode: Bool?
+}
+
+struct DexNativeProviderModelOptions: Codable, Equatable {
+    let codex: DexNativeCodexModelOptions?
+}
+
+struct DexNativeModelSelection: Codable, Equatable {
+    let provider: String
+    let model: String
+    let options: DexNativeProviderModelOptions?
+}
+
 struct DexNativeOrchestrationThread: Codable, Equatable {
     let id: String
     let projectId: String
     let title: String
+    let modelSelection: DexNativeModelSelection?
+    let runtimeMode: String?
+    let interactionMode: String?
     let branch: String?
     let worktreePath: String?
+    let latestTurn: DexCompanionLatestTurn?
     let messages: [DexNativeOrchestrationMessage]
 }
 
@@ -214,6 +233,74 @@ struct DexCompanionClient {
 
     func fetchAuthSessionState() async throws -> DexAuthSessionState {
         try await request(path: "api/auth/session", method: "GET")
+    }
+
+    func createNativeThread(
+        projectId: String,
+        title: String?,
+        modelSelection: [String: Any]?,
+        runtimeMode: String,
+        interactionMode: String,
+        branch: String?,
+        worktreePath: String?
+    ) async throws -> DexNativeThreadSnapshot {
+        var requestBody: [String: Any] = [
+            "projectId": projectId,
+            "runtimeMode": runtimeMode,
+            "interactionMode": interactionMode,
+        ]
+        if let title {
+            requestBody["title"] = title
+        }
+        if let modelSelection {
+            requestBody["modelSelection"] = modelSelection
+        }
+        if let branch {
+            requestBody["branch"] = branch
+        }
+        if let worktreePath {
+            requestBody["worktreePath"] = worktreePath
+        }
+        return try await request(
+            path: "api/companion/native/thread/create",
+            method: "POST",
+            bodyData: try JSONSerialization.data(withJSONObject: requestBody)
+        )
+    }
+
+    func configureNativeThread(
+        threadId: String,
+        title: String? = nil,
+        modelSelection: [String: Any]? = nil,
+        runtimeMode: String? = nil,
+        interactionMode: String? = nil
+    ) async throws -> DexNativeThreadSnapshot {
+        var requestBody: [String: Any] = ["threadId": threadId]
+        if let title {
+            requestBody["title"] = title
+        }
+        if let modelSelection {
+            requestBody["modelSelection"] = modelSelection
+        }
+        if let runtimeMode {
+            requestBody["runtimeMode"] = runtimeMode
+        }
+        if let interactionMode {
+            requestBody["interactionMode"] = interactionMode
+        }
+        return try await request(
+            path: "api/companion/native/thread/configure",
+            method: "POST",
+            bodyData: try JSONSerialization.data(withJSONObject: requestBody)
+        )
+    }
+
+    func archiveNativeThread(threadId: String) async throws -> DexCompanionDispatchResponse {
+        try await request(
+            path: "api/companion/native/thread/archive",
+            method: "POST",
+            bodyData: try JSONSerialization.data(withJSONObject: ["threadId": threadId])
+        )
     }
 
     func streamNativeThreadSnapshots(

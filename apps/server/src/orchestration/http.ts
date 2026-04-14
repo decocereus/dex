@@ -1,15 +1,22 @@
 import {
   ClientOrchestrationCommand,
+  CommandId,
   CompanionNativeShellSnapshot,
   CompanionNativeThreadSnapshot,
+  type ExecutionEnvironmentDescriptor,
+  ModelSelection,
   type OrchestrationEvent,
   type OrchestrationThread,
   OrchestrationDispatchCommandError,
   OrchestrationGetSnapshotError,
   type OrchestrationReadModel,
+  ProjectId,
+  ProviderInteractionMode,
+  RuntimeMode,
   ThreadId,
+  TrimmedNonEmptyString,
 } from "@dex/contracts";
-import { Effect, Option, Stream } from "effect";
+import { Effect, Option, Schema, Stream } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { respondToAuthError } from "../auth/http.ts";
@@ -20,7 +27,10 @@ import {
   toCompanionNativeThreadSnapshot,
 } from "./nativeProjection.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
-import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionSnapshotQueryShape,
+} from "./Services/ProjectionSnapshotQuery.ts";
 import { ServerEnvironment } from "../environment/Services/ServerEnvironment.ts";
 
 const respondToOrchestrationHttpError = (
@@ -120,10 +130,36 @@ const companionClientAllowedCommandTypes = new Set([
 
 const nativeThreadStreamEncoder = new TextEncoder();
 
+const CompanionNativeThreadCreateInput = Schema.Struct({
+  projectId: ProjectId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(Effect.succeed("full-access"))),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(Effect.succeed("default")),
+  ),
+  branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+});
+
+const CompanionNativeThreadConfigureInput = Schema.Struct({
+  threadId: ThreadId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: Schema.optional(RuntimeMode),
+  interactionMode: Schema.optional(ProviderInteractionMode),
+});
+
+const CompanionNativeThreadArchiveInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
 function isNativeThreadStreamEvent(event: OrchestrationEvent): boolean {
   return (
     event.aggregateKind === "thread" &&
     (event.type === "thread.meta-updated" ||
+      event.type === "thread.runtime-mode-set" ||
+      event.type === "thread.interaction-mode-set" ||
       event.type === "thread.message-sent" ||
       event.type === "thread.turn-start-requested" ||
       event.type === "thread.turn-interrupt-requested" ||
@@ -156,6 +192,39 @@ export const companionShellSnapshotRouteLayer = HttpRouter.add(
     Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
   ),
 );
+
+function loadNativeThreadSnapshot(input: {
+  readonly threadId: ThreadId;
+  readonly projectionSnapshotQuery: ProjectionSnapshotQueryShape;
+  readonly environment: ExecutionEnvironmentDescriptor;
+}) {
+  return input.projectionSnapshotQuery.getThreadDetailById(input.threadId).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationGetSnapshotError({
+          message: "Failed to load native companion thread snapshot.",
+          cause,
+        }),
+    ),
+    Effect.flatMap((thread) => {
+      if (Option.isNone(thread)) {
+        return Effect.succeed(
+          HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 }),
+        );
+      }
+
+      return Effect.succeed(
+        HttpServerResponse.jsonUnsafe(
+          toCompanionNativeThreadSnapshot({
+            environment: input.environment,
+            thread: thread.value,
+          }) satisfies CompanionNativeThreadSnapshot,
+          { status: 200 },
+        ),
+      );
+    }),
+  );
+}
 
 export const companionThreadDetailRouteLayer = HttpRouter.add(
   "GET",
@@ -293,33 +362,229 @@ export const companionNativeThreadSnapshotRouteLayer = HttpRouter.add(
 
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const serverEnvironment = yield* ServerEnvironment;
-    const [thread, environment] = yield* Effect.all([
-      projectionSnapshotQuery.getThreadDetailById(ThreadId.make(rawThreadId)).pipe(
-        Effect.mapError(
-          (cause) =>
-            new OrchestrationGetSnapshotError({
-              message: "Failed to load native companion thread snapshot.",
-              cause,
-            }),
-        ),
-      ),
-      serverEnvironment.getDescriptor,
-    ]);
-
-    if (Option.isNone(thread)) {
-      return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
-    }
-
-    return HttpServerResponse.jsonUnsafe(
-      toCompanionNativeThreadSnapshot({
-        environment,
-        thread: thread.value,
-      }) satisfies CompanionNativeThreadSnapshot,
-      { status: 200 },
-    );
+    const environment = yield* serverEnvironment.getDescriptor;
+    return yield* loadNativeThreadSnapshot({
+      threadId: ThreadId.make(rawThreadId),
+      projectionSnapshotQuery,
+      environment,
+    });
   }).pipe(
     Effect.catchTag("AuthError", respondToAuthError),
     Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+  ),
+);
+
+export const companionNativeThreadCreateRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/thread/create",
+  Effect.gen(function* () {
+    yield* authenticateSession;
+    const orchestrationEngine = yield* OrchestrationEngineService;
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const serverEnvironment = yield* ServerEnvironment;
+    const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadCreateInput).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: "Invalid native companion thread create payload.",
+            cause,
+          }),
+      ),
+    );
+
+    const threadId = ThreadId.make(crypto.randomUUID());
+    const createdAt = new Date().toISOString();
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.create",
+        commandId: CommandId.make(`companion-native-create:${crypto.randomUUID()}`),
+        threadId,
+        projectId: payload.projectId,
+        title: payload.title ?? "New Session",
+        modelSelection: payload.modelSelection ?? {
+          provider: "codex",
+          model: "gpt-5.4",
+        },
+        runtimeMode: payload.runtimeMode,
+        interactionMode: payload.interactionMode,
+        branch: payload.branch ?? null,
+        worktreePath: payload.worktreePath ?? null,
+        createdAt,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationDispatchCommandError({
+              message: "Failed to create native companion thread.",
+              cause,
+            }),
+        ),
+      );
+
+    const environment = yield* serverEnvironment.getDescriptor;
+    return yield* loadNativeThreadSnapshot({
+      threadId,
+      projectionSnapshotQuery,
+      environment,
+    });
+  }).pipe(
+    Effect.catchTag("AuthError", respondToAuthError),
+    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+  ),
+);
+
+export const companionNativeThreadConfigureRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/thread/configure",
+  Effect.gen(function* () {
+    yield* authenticateSession;
+    const orchestrationEngine = yield* OrchestrationEngineService;
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const serverEnvironment = yield* ServerEnvironment;
+    const payload = yield* HttpServerRequest.schemaBodyJson(
+      CompanionNativeThreadConfigureInput,
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: "Invalid native companion thread configure payload.",
+            cause,
+          }),
+      ),
+    );
+
+    const currentThread = yield* projectionSnapshotQuery.getThreadDetailById(payload.threadId).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationGetSnapshotError({
+            message: "Failed to load native companion thread snapshot.",
+            cause,
+          }),
+      ),
+    );
+
+    if (Option.isNone(currentThread)) {
+      return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
+    }
+
+    const thread = currentThread.value;
+    const createdAt = new Date().toISOString();
+
+    if (payload.title !== undefined || payload.modelSelection !== undefined) {
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.meta.update",
+          commandId: CommandId.make(`companion-native-meta:${crypto.randomUUID()}`),
+          threadId: payload.threadId,
+          ...(payload.title !== undefined ? { title: payload.title } : {}),
+          ...(payload.modelSelection !== undefined
+            ? { modelSelection: payload.modelSelection }
+            : {}),
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationDispatchCommandError({
+                message: "Failed to update native companion thread metadata.",
+                cause,
+              }),
+          ),
+        );
+    }
+
+    if (payload.runtimeMode !== undefined && payload.runtimeMode !== thread.runtimeMode) {
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.runtime-mode.set",
+          commandId: CommandId.make(`companion-native-runtime:${crypto.randomUUID()}`),
+          threadId: payload.threadId,
+          runtimeMode: payload.runtimeMode,
+          createdAt,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationDispatchCommandError({
+                message: "Failed to update native companion runtime mode.",
+                cause,
+              }),
+          ),
+        );
+    }
+
+    if (
+      payload.interactionMode !== undefined &&
+      payload.interactionMode !== thread.interactionMode
+    ) {
+      yield* orchestrationEngine
+        .dispatch({
+          type: "thread.interaction-mode.set",
+          commandId: CommandId.make(`companion-native-interaction:${crypto.randomUUID()}`),
+          threadId: payload.threadId,
+          interactionMode: payload.interactionMode,
+          createdAt,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationDispatchCommandError({
+                message: "Failed to update native companion collaboration mode.",
+                cause,
+              }),
+          ),
+        );
+    }
+
+    const environment = yield* serverEnvironment.getDescriptor;
+    return yield* loadNativeThreadSnapshot({
+      threadId: payload.threadId,
+      projectionSnapshotQuery,
+      environment,
+    });
+  }).pipe(
+    Effect.catchTag("AuthError", respondToAuthError),
+    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+  ),
+);
+
+export const companionNativeThreadArchiveRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/thread/archive",
+  Effect.gen(function* () {
+    yield* authenticateSession;
+    const orchestrationEngine = yield* OrchestrationEngineService;
+    const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadArchiveInput).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: "Invalid native companion thread archive payload.",
+            cause,
+          }),
+      ),
+    );
+
+    const result = yield* orchestrationEngine
+      .dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make(`companion-native-archive:${crypto.randomUUID()}`),
+        threadId: payload.threadId,
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationDispatchCommandError({
+              message: "Failed to archive native companion thread.",
+              cause,
+            }),
+        ),
+      );
+
+    return HttpServerResponse.jsonUnsafe(result, { status: 200 });
+  }).pipe(
+    Effect.catchTag("AuthError", respondToAuthError),
+    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
   ),
 );
 

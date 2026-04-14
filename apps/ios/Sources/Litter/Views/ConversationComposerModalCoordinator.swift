@@ -266,6 +266,13 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                                         sandboxMode: selectedSandboxValue,
                                         for: snapshot.threadKey
                                     )
+                                    Task {
+                                        try? await appModel.setThreadPermissions(
+                                            key: snapshot.threadKey,
+                                            approvalPolicy: AppAskForApproval(wireValue: option.wireValue),
+                                            sandboxMode: AppSandboxMode(wireValue: selectedSandboxValue)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -290,6 +297,13 @@ struct ConversationComposerModalCoordinator<Content: View>: View {
                                         sandboxMode: option.wireValue,
                                         for: snapshot.threadKey
                                     )
+                                    Task {
+                                        try? await appModel.setThreadPermissions(
+                                            key: snapshot.threadKey,
+                                            approvalPolicy: AppAskForApproval(wireValue: selectedApprovalValue),
+                                            sandboxMode: AppSandboxMode(wireValue: option.wireValue)
+                                        )
+                                    }
                                 }
                             }
                         }

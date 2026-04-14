@@ -508,10 +508,7 @@ private struct HomeNavigationView: View {
                         onConnectServer: { appState.showServerPicker = true },
                         onShowSettings: { appState.showSettings = true },
                         onDeleteThread: { key in
-                            _ = try? await appModel.client.archiveThread(
-                                serverId: key.serverId,
-                                params: AppArchiveThreadRequest(threadId: key.threadId)
-                            )
+                            try? await appModel.archiveThread(key: key)
                             await appModel.refreshSnapshot()
                         },
                         onReconnectServer: { server in
@@ -862,10 +859,15 @@ private struct HomeNavigationView: View {
         if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
             do {
                 let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+                let selectedEffort = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard let key = try await appModel.startDexThread(
                     serverId: serverId,
                     cwd: cwd,
-                    model: selectedModel.isEmpty ? nil : selectedModel
+                    model: selectedModel.isEmpty ? nil : selectedModel,
+                    reasoningEffort: selectedEffort.isEmpty ? nil : selectedEffort,
+                    approvalPolicy: appState.launchApprovalPolicy(for: nil),
+                    sandboxMode: appState.launchSandboxMode(for: nil),
+                    fastMode: UserDefaults.standard.bool(forKey: "fastMode")
                 ) else {
                     actionErrorMessage = "Failed to create session."
                     return

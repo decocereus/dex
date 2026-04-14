@@ -227,6 +227,13 @@ struct ConversationView: View {
     private func forkFromMessage(_ item: ConversationItem) {
         Task {
             do {
+                if DexCompanionRouting.environmentId(fromServerId: activeThreadKey.serverId) != nil {
+                    throw NSError(
+                        domain: "Litter",
+                        code: 1015,
+                        userInfo: [NSLocalizedDescriptionKey: "Fork isn't available for paired Mac threads yet."]
+                    )
+                }
                 guard let selectedTurnIndex = item.sourceTurnIndex, item.isUserItem, item.isFromUserTurnBoundary else {
                     throw NSError(
                         domain: "Litter",
@@ -435,7 +442,7 @@ private struct ConversationBottomChrome: View {
 
     private func setCollaborationMode(_ mode: AppModeKind) async {
         do {
-            try await appModel.store.setThreadCollaborationMode(
+            try await appModel.setThreadCollaborationMode(
                 key: composer.threadKey,
                 mode: mode
             )
@@ -1848,6 +1855,13 @@ private struct ConversationInputBar: View {
 
     private func forkConversation() async {
         do {
+            if DexCompanionRouting.environmentId(fromServerId: snapshot.threadKey.serverId) != nil {
+                throw NSError(
+                    domain: "Litter",
+                    code: 1021,
+                    userInfo: [NSLocalizedDescriptionKey: "Fork isn't available for paired Mac threads yet."]
+                )
+            }
             let nextKey = try await appModel.client.forkThread(
                 serverId: snapshot.threadKey.serverId,
                 params: AppThreadLaunchConfig(
