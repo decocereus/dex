@@ -23,8 +23,9 @@ struct DiscoveryView: View {
     @State private var renameTarget: DiscoveredServer?
     @State private var renameText = ""
     @State private var showQRPairingSheet = false
-    @State private var showDexCompanionSheet = false
     @State private var activeDexCompanionSession: DexCompanionBrowserSession?
+    @State private var savedDexCompanionSessions: [DexCompanionSavedSession] =
+        DexCompanionSessionStore.load()
     @Environment(AppState.self) private var appState
     private let autoStartDiscovery: Bool
     private let initialServers: [DiscoveredServer]
@@ -46,7 +47,7 @@ struct DiscoveryView: View {
     }
 
     private var networkServers: [DiscoveredServer] {
-        discovery.servers.filter { $0.source != .local && !$0.isPairableMacBridge }
+        discovery.servers.filter { $0.source != .local }
     }
 
     private func applyInitialServersIfNeeded() {
@@ -65,6 +66,7 @@ struct DiscoveryView: View {
 
     private func handleAppear() {
         refreshDiscovery()
+        savedDexCompanionSessions = DexCompanionSessionStore.load()
         guard autoStartDiscovery else { return }
         maybeStartSimulatorAutoSSH()
     }
@@ -79,10 +81,22 @@ struct DiscoveryView: View {
         do {
             let session = try await DexCompanionPairingClient().redeem(payload)
             DexCompanionSessionStore.upsert(from: session)
+            savedDexCompanionSessions = DexCompanionSessionStore.load()
             activeDexCompanionSession = session
         } catch {
             connectError = error.localizedDescription
         }
+    }
+
+    @MainActor
+    private func openSavedDexCompanion(_ savedSession: DexCompanionSavedSession) {
+        guard let session = savedSession.makeBrowserSession() else {
+            DexCompanionSessionStore.remove(environmentId: savedSession.environmentId)
+            savedDexCompanionSessions = DexCompanionSessionStore.load()
+            connectError = "This Mac needs to be paired again."
+            return
+        }
+        activeDexCompanionSession = session
     }
 
     var body: some View {
@@ -122,9 +136,6 @@ struct DiscoveryView: View {
                     },
                     onClose: { showQRPairingSheet = false }
                 )
-            }
-            .sheet(isPresented: $showDexCompanionSheet) {
-                DexCompanionHomeView()
             }
             .sheet(item: $activeDexCompanionSession) { session in
                 DexCompanionWebScreen(session: session)
@@ -238,6 +249,7 @@ struct DiscoveryView: View {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             List {
                 serversSection
+                pairedMacsSection
                 manualSection
             }
             .scrollContentBackground(.hidden)
@@ -403,30 +415,17 @@ struct DiscoveryView: View {
     private var manualSection: some View {
         Section {
             Button {
-                showDexCompanionSheet = true
-            } label: {
-                HStack {
-                    Image(systemName: "iphone.gen3.badge.waveform")
-                        .foregroundColor(LitterTheme.accent)
-                    Text("Open Dex Companion")
-                        .litterFont(.subheadline)
-                        .foregroundColor(LitterTheme.accent)
-                }
-            }
-            .accessibilityIdentifier("discovery.openDexCompanionButton")
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
-
-            Button {
                 showQRPairingSheet = true
             } label: {
                 HStack {
                     Image(systemName: "qrcode.viewfinder")
                         .foregroundColor(LitterTheme.accent)
-                    Text("Scan Dex Companion QR")
+                    Text("Scan Mac QR")
                         .litterFont(.subheadline)
                         .foregroundColor(LitterTheme.accent)
                 }
             }
+            .accessibilityIdentifier("discovery.scanMacQrButton")
             .listRowBackground(LitterTheme.surface.opacity(0.6))
 
             Button {
@@ -443,6 +442,48 @@ struct DiscoveryView: View {
             }
             .accessibilityIdentifier("discovery.addServerButton")
             .listRowBackground(LitterTheme.surface.opacity(0.6))
+        }
+    }
+
+    private var pairedMacsSection: some View {
+        Section {
+            if savedDexCompanionSessions.isEmpty {
+                EmptyView()
+            } else {
+                ForEach(savedDexCompanionSessions) { savedSession in
+                    Button {
+                        openSavedDexCompanion(savedSession)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "desktopcomputer")
+                                .foregroundColor(LitterTheme.accent)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(savedSession.serverLabel)
+                                    .litterFont(.subheadline)
+                                    .foregroundColor(LitterTheme.textPrimary)
+                                Text("Continue the same desktop workspace")
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(LitterTheme.textMuted)
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(
+                        "discovery.dexCompanion.\(savedSession.environmentId)"
+                    )
+                    .listRowBackground(LitterTheme.surface.opacity(0.6))
+                }
+            }
+        } header: {
+            if !savedDexCompanionSessions.isEmpty {
+                Text("Macs")
+                    .foregroundColor(LitterTheme.textSecondary)
+            }
         }
     }
 
@@ -604,9 +645,6 @@ struct DiscoveryView: View {
     private func prepareServerForSelection(_ server: DiscoveredServer) async -> (server: DiscoveredServer, canAttemptSSH: Bool) {
         guard server.source != .local else {
             return (server, true)
-        }
-        guard !server.isPairableMacBridge else {
-            return (server, false)
         }
 
         wakingServer = server

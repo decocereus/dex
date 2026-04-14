@@ -952,6 +952,47 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("bootstraps a web session for companion clients from a bearer session", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const bootstrapUrl = yield* getHttpServerUrl(
+        "/api/auth/companion/web-session?path=%2F_chat%2F",
+      );
+      const response = yield* Effect.promise(() =>
+        fetch(bootstrapUrl, {
+          redirect: "manual",
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+
+      assert.equal(response.status, 302);
+      assert.equal(response.headers.get("location"), "/_chat/");
+      const setCookie = response.headers.get("set-cookie");
+      assert.isDefined(setCookie);
+      assert.include(setCookie ?? "", "HttpOnly");
+      assert.include(setCookie ?? "", "SameSite=Lax");
+
+      const sessionUrl = yield* getHttpServerUrl("/api/auth/session");
+      const sessionResponse = yield* Effect.promise(() =>
+        fetch(sessionUrl, {
+          headers: {
+            cookie: setCookie?.split(";")[0] ?? "",
+          },
+        }),
+      );
+      const sessionBody = (yield* Effect.promise(() => sessionResponse.json())) as {
+        readonly authenticated: boolean;
+      };
+
+      assert.equal(sessionResponse.status, 200);
+      assert.equal(sessionBody.authenticated, true);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("serves companion shell snapshots to authenticated client bearer sessions", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();

@@ -30,11 +30,11 @@ struct MacPairingScannerView: View {
                         .stroke(Color.white.opacity(0.7), lineWidth: 2)
                         .frame(width: 250, height: 250)
 
-                    Text("Scan the Dex companion QR from your Mac")
+                    Text("Scan the QR from your Mac")
                         .litterFont(.subheadline)
                         .foregroundStyle(.white)
 
-                    Button("Paste Payload Instead") {
+                    Button("Paste from Mac Instead") {
                         isShowingManualEntry = true
                     }
                     .litterFont(.subheadline)
@@ -54,7 +54,7 @@ struct MacPairingScannerView: View {
                         .litterFont(.headline)
                         .foregroundStyle(.white)
 
-                    Button("Paste Payload Instead") {
+                    Button("Paste from Mac Instead") {
                         isShowingManualEntry = true
                     }
                     .litterFont(.subheadline)
@@ -89,8 +89,8 @@ struct MacPairingScannerView: View {
         } message: {
             Text(scannerError ?? "Invalid QR")
         }
-        .alert("Paste Pairing Payload", isPresented: $isShowingManualEntry) {
-            TextField("Payload JSON", text: $manualPayload, axis: .vertical)
+        .alert("Paste from Mac", isPresented: $isShowingManualEntry) {
+            TextField("Paste text from your Mac", text: $manualPayload, axis: .vertical)
             Button("Import") {
                 handleManualPayload()
             }
@@ -98,7 +98,7 @@ struct MacPairingScannerView: View {
                 manualPayload = ""
             }
         } message: {
-            Text("Paste the full Dex companion pairing payload JSON if scanning is unavailable.")
+            Text("Paste the full text from your Mac if scanning is unavailable.")
         }
     }
 

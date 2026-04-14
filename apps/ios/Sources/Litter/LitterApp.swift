@@ -462,13 +462,8 @@ private struct HomeNavigationView: View {
     @State private var hasSeededInitialConversationRoute = false
     @State private var pendingWallpaperConfig: WallpaperConfig?
     @State private var pendingWallpaperImage: UIImage?
-    @State private var showDexCompanion = false
     let topInset: CGFloat
     let bottomInset: CGFloat
-
-    private var dexCompanionCount: Int {
-        DexCompanionSessionStore.load().count
-    }
 
     private enum HomeNavigationRoute: Hashable {
         case sessions(serverId: String, title: String)
@@ -505,12 +500,10 @@ private struct HomeNavigationView: View {
                     HomeDashboardView(
                         recentSessions: homeDashboardModel.recentSessions,
                         connectedServers: homeDashboardModel.connectedServers,
-                        dexCompanionCount: dexCompanionCount,
                         openingRecentSessionKey: openingRecentSessionKey,
                         isStartingNewSession: isStartingNewSession,
                         onOpenRecentSession: openRecentSession,
                         onOpenServerSessions: openServerSessions,
-                        onOpenDexCompanion: { showDexCompanion = true },
                         onNewSession: handleNewSessionTap,
                         onConnectServer: { appState.showServerPicker = true },
                         onShowSettings: { appState.showSettings = true },
@@ -713,9 +706,6 @@ private struct HomeNavigationView: View {
                     }
                 )
             }
-        }
-        .sheet(isPresented: $showDexCompanion) {
-            DexCompanionHomeView()
         }
         .alert("Home Action Failed", isPresented: Binding(
             get: { actionErrorMessage != nil },

@@ -3,12 +3,10 @@ import SwiftUI
 struct HomeDashboardView: View {
     let recentSessions: [HomeDashboardRecentSession]
     let connectedServers: [HomeDashboardServer]
-    let dexCompanionCount: Int
     let openingRecentSessionKey: ThreadKey?
     let isStartingNewSession: Bool
     let onOpenRecentSession: @MainActor (HomeDashboardRecentSession) async -> Void
     let onOpenServerSessions: (HomeDashboardServer) -> Void
-    let onOpenDexCompanion: () -> Void
     let onNewSession: () -> Void
     let onConnectServer: () -> Void
     let onShowSettings: () -> Void
@@ -43,7 +41,6 @@ struct HomeDashboardView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     recentSessionsSection(limit: recentLimit)
-                    dexCompanionSection
                     connectedServersSection
                     if DebugSettings.shared.enabled {
                         recordingsSection
@@ -216,50 +213,6 @@ struct HomeDashboardView: View {
                     }
                 }
             }
-        }
-    }
-
-    private var dexCompanionSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(
-                title: "Dex Companion",
-                buttonTitle: "Open",
-                systemImage: "iphone.gen3.badge.waveform",
-                action: onOpenDexCompanion
-            )
-
-            Button(action: onOpenDexCompanion) {
-                HStack(spacing: 12) {
-                    Image(systemName: "qrcode.viewfinder")
-                        .foregroundColor(LitterTheme.accent)
-                        .frame(width: 24)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Continue desktop work from iPhone")
-                            .litterFont(.subheadline)
-                            .foregroundColor(LitterTheme.textPrimary)
-                        Text(dexCompanionCount == 0
-                             ? "Scan a Dex companion QR from desktop."
-                             : "\(dexCompanionCount) saved companion\(dexCompanionCount == 1 ? "" : "s") ready to reopen.")
-                            .litterFont(.caption)
-                            .foregroundColor(LitterTheme.textSecondary)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(LitterTheme.textMuted)
-                }
-                .padding(14)
-                .background(LitterTheme.surface.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(LitterTheme.border.opacity(0.7), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("home.dexCompanionCard")
         }
     }
 

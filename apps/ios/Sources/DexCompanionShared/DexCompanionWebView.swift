@@ -22,37 +22,34 @@ struct DexCompanionWebView: UIViewRepresentable {
 
     @MainActor
     private func seedCookieAndLoad(webView: WKWebView) async {
-        guard let baseUrl = URL(string: session.httpBaseUrl),
-              let host = baseUrl.host else {
+        guard let baseUrl = URL(string: session.httpBaseUrl) else {
             return
         }
-
-        let cookieProperties: [HTTPCookiePropertyKey: Any] = [
-            .domain: host,
-            .path: "/",
-            .name: session.sessionCookieName,
-            .value: session.bearerToken,
-            .secure: baseUrl.scheme?.lowercased() == "https",
-            .expires: Date(timeIntervalSinceNow: 60 * 60 * 24 * 30),
-        ]
-
-        if let cookie = HTTPCookie(properties: cookieProperties) {
-            await webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie)
+        let bootstrapPath = "api/auth/companion/web-session"
+        let desiredPath = normalizedInitialPath()
+        guard var components = URLComponents(
+            url: baseUrl.appending(path: bootstrapPath),
+            resolvingAgainstBaseURL: false
+        ) else {
+            return
         }
-
-        let requestUrl: URL
-        if let initialPath = session.initialPath?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !initialPath.isEmpty,
-           var components = URLComponents(url: baseUrl, resolvingAgainstBaseURL: false) {
-            components.path = initialPath.hasPrefix("/") ? initialPath : "/\(initialPath)"
-            requestUrl = components.url ?? baseUrl
-        } else {
-            requestUrl = baseUrl
+        components.queryItems = [URLQueryItem(name: "path", value: desiredPath)]
+        guard let requestUrl = components.url else {
+            return
         }
 
         var request = URLRequest(url: requestUrl)
         request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("Bearer \(session.bearerToken)", forHTTPHeaderField: "Authorization")
         webView.load(request)
+    }
+
+    private func normalizedInitialPath() -> String {
+        if let initialPath = session.initialPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !initialPath.isEmpty {
+            return initialPath.hasPrefix("/") ? initialPath : "/\(initialPath)"
+        }
+        return "/_chat/"
     }
 }
 
