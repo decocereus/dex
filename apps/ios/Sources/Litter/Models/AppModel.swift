@@ -1385,27 +1385,41 @@ final class AppModel {
                 return
             }
 
-            do {
-                try await client.streamNativeThreadSnapshots(threadId: key.threadId) { snapshot in
-                    guard !Task.isCancelled else { return }
-                    let overlay = DexNativeThreadAdapter.makeOverlay(
-                        serverId: key.serverId,
-                        browserSession: browserSession,
-                        snapshot: snapshot
-                    )
-                    await MainActor.run {
-                        self.dexServerSnapshots[key.serverId] = overlay.serverSnapshot
-                        self.dexThreadSnapshots[key] = overlay.threadSnapshot
-                        self.dexPendingApprovalsByThread[key] = overlay.pendingApprovals
-                        self.dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
-                        self.snapshotRevision &+= 1
+            while !Task.isCancelled {
+                do {
+                    try await client.streamNativeThreadSnapshots(threadId: key.threadId) { snapshot in
+                        guard !Task.isCancelled else { return }
+                        let overlay = DexNativeThreadAdapter.makeOverlay(
+                            serverId: key.serverId,
+                            browserSession: browserSession,
+                            snapshot: snapshot
+                        )
+                        await MainActor.run {
+                            self.dexServerSnapshots[key.serverId] = overlay.serverSnapshot
+                            self.dexThreadSnapshots[key] = overlay.threadSnapshot
+                            self.dexPendingApprovalsByThread[key] = overlay.pendingApprovals
+                            self.dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
+                            self.snapshotRevision &+= 1
+                        }
                     }
-                }
-            } catch {
-                if !Task.isCancelled {
-                    await MainActor.run {
-                        self.lastError = error.localizedDescription
+                    break
+                } catch {
+                    if Task.isCancelled {
+                        break
                     }
+                    let nsError = error as NSError
+                    let shouldSilence =
+                        nsError.domain == NSURLErrorDomain &&
+                        (nsError.code == NSURLErrorTimedOut ||
+                            nsError.code == NSURLErrorCannotConnectToHost ||
+                            nsError.code == NSURLErrorNetworkConnectionLost)
+                    if !shouldSilence {
+                        await MainActor.run {
+                            self.lastError = error.localizedDescription
+                        }
+                    }
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    continue
                 }
             }
         }
@@ -1463,6 +1477,13 @@ final class AppModel {
             ]
         }
 
+        let interactionMode: String = {
+            if let thread = threadSnapshot(for: key), thread.collaborationMode == .plan {
+                return "plan"
+            }
+            return "default"
+        }()
+
         _ = try await client.dispatchCommand([
             "type": "thread.turn.start",
             "commandId": UUID().uuidString,
@@ -1473,6 +1494,8 @@ final class AppModel {
                 "text": text,
                 "attachments": attachments,
             ],
+            "runtimeMode": "full-access",
+            "interactionMode": interactionMode,
             "createdAt": ISO8601DateFormatter().string(from: Date()),
         ])
         try await refreshDexThreadSnapshot(key: key)

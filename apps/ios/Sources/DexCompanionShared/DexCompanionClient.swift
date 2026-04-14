@@ -80,6 +80,18 @@ struct DexNativeEnvironmentDescriptor: Codable, Equatable {
     let label: String
 }
 
+struct DexAuthSessionState: Codable, Equatable {
+    struct AuthDescriptor: Codable, Equatable {
+        let policy: String
+    }
+
+    let authenticated: Bool
+    let auth: AuthDescriptor
+    let role: String?
+    let sessionMethod: String?
+    let expiresAt: String?
+}
+
 struct DexNativeShellSnapshot: Codable, Equatable {
     let environment: DexNativeEnvironmentDescriptor
     let projects: [DexNativeProjectShell]
@@ -200,6 +212,10 @@ struct DexCompanionClient {
         )
     }
 
+    func fetchAuthSessionState() async throws -> DexAuthSessionState {
+        try await request(path: "api/auth/session", method: "GET")
+    }
+
     func streamNativeThreadSnapshots(
         threadId: String,
         onSnapshot: @escaping @Sendable (DexNativeThreadSnapshot) async -> Void
@@ -219,6 +235,7 @@ struct DexCompanionClient {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 60 * 60 * 24
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
