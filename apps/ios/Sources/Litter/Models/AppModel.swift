@@ -93,6 +93,7 @@ final class AppModel {
     @ObservationIgnored private var dexServerSnapshots: [String: AppServerSnapshot] = [:]
     @ObservationIgnored private var dexPendingApprovalsByThread: [ThreadKey: [PendingApproval]] = [:]
     @ObservationIgnored private var dexPendingUserInputsByThread: [ThreadKey: [PendingUserInputRequest]] = [:]
+    @ObservationIgnored private var dexAuthSessionStateByServerId: [String: DexAuthSessionState] = [:]
     @ObservationIgnored private var dexThreadStreamTask: Task<Void, Never>?
     @ObservationIgnored private var dexThreadStreamKey: ThreadKey?
 
@@ -123,6 +124,7 @@ final class AppModel {
         dexServerSnapshots.removeAll()
         dexPendingApprovalsByThread.removeAll()
         dexPendingUserInputsByThread.removeAll()
+        dexAuthSessionStateByServerId.removeAll()
     }
 
     func start() {
@@ -169,6 +171,7 @@ final class AppModel {
         dexServerSnapshots.removeAll()
         dexPendingApprovalsByThread.removeAll()
         dexPendingUserInputsByThread.removeAll()
+        dexAuthSessionStateByServerId.removeAll()
         subscription = nil
     }
 
@@ -1221,6 +1224,21 @@ final class AppModel {
         snapshot?.serverSnapshot(for: serverId) ?? dexServerSnapshots[serverId]
     }
 
+    func allServerSnapshots() -> [AppServerSnapshot] {
+        let native = snapshot?.servers ?? []
+        let existingIds = Set(native.map(\.serverId))
+        let dex = dexServerSnapshots.values.filter { !existingIds.contains($0.serverId) }
+        return native + dex
+    }
+
+    func isDexManagedServer(_ serverId: String) -> Bool {
+        DexCompanionRouting.environmentId(fromServerId: serverId) != nil
+    }
+
+    func dexAuthSessionState(for serverId: String) -> DexAuthSessionState? {
+        dexAuthSessionStateByServerId[serverId]
+    }
+
     var pendingApprovals: [PendingApproval] {
         (snapshot?.pendingApprovals ?? []) + dexPendingApprovalsByThread.values.flatMap { $0 }
     }
@@ -1234,6 +1252,7 @@ final class AppModel {
 
     func loadConversationMetadataIfNeeded(serverId: String) async {
         if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
+            await loadDexServerAuthStateIfNeeded(serverId: serverId)
             return
         }
         if hasFreshConversationMetadata(for: serverId) {
@@ -1458,6 +1477,20 @@ final class AppModel {
         ])
         try await refreshDexThreadSnapshot(key: key)
         return true
+    }
+
+    func loadDexServerAuthStateIfNeeded(serverId: String) async {
+        guard dexAuthSessionStateByServerId[serverId] == nil,
+              let client = dexClient(for: serverId)
+        else {
+            return
+        }
+        do {
+            dexAuthSessionStateByServerId[serverId] = try await client.fetchAuthSessionState()
+            snapshotRevision &+= 1
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     private func interruptDexTurnIfNeeded(

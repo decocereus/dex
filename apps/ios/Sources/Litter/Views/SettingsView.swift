@@ -8,18 +8,18 @@ struct SettingsView: View {
 
     private var currentServer: AppServerSnapshot? {
         if let activeServerId = appModel.snapshot?.activeThread?.serverId,
-           let activeServer = appModel.snapshot?.servers.first(where: { $0.serverId == activeServerId }) {
+           let activeServer = appModel.serverSnapshot(for: activeServerId) {
             return activeServer
         }
-        if let localServer = appModel.snapshot?.servers.first(where: \.isLocal) {
+        if let localServer = appModel.allServerSnapshots().first(where: \.isLocal) {
             return localServer
         }
-        return appModel.snapshot?.servers.first
+        return appModel.allServerSnapshots().first
     }
 
     private var connectedServers: [HomeDashboardServer] {
         HomeDashboardSupport.sortedConnectedServers(
-            from: appModel.snapshot?.servers ?? [],
+            from: appModel.allServerSnapshots(),
             activeServerId: appModel.snapshot?.activeThread?.serverId
         )
     }
@@ -218,8 +218,10 @@ struct SettingsView: View {
                         Spacer()
                         Button("Remove") {
                             SavedServerStore.remove(serverId: conn.id)
-                            Task { await SshSessionStore.shared.close(serverId: conn.id, ssh: appModel.ssh) }
-                            appModel.serverBridge.disconnectServer(serverId: conn.id)
+                            if !appModel.isDexManagedServer(conn.id) {
+                                Task { await SshSessionStore.shared.close(serverId: conn.id, ssh: appModel.ssh) }
+                                appModel.serverBridge.disconnectServer(serverId: conn.id)
+                            }
                         }
                         .litterFont(.caption)
                         .foregroundColor(LitterTheme.danger)
@@ -243,6 +245,14 @@ private struct SettingsConnectionAccountSection: View {
     @State private var authError: String?
     @State private var hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
 
+    private var isDexManagedServer: Bool {
+        appModel.isDexManagedServer(server.serverId)
+    }
+
+    private var dexSessionState: DexAuthSessionState? {
+        appModel.dexAuthSessionState(for: server.serverId)
+    }
+
     var body: some View {
         Section {
             HStack(spacing: 12) {
@@ -260,7 +270,7 @@ private struct SettingsConnectionAccountSection: View {
                     }
                 }
                 Spacer()
-                if server.isLocal, server.account != nil {
+                if server.isLocal, server.account != nil, !isDexManagedServer {
                     Button("Logout") {
                         Task { await logout() }
                     }
@@ -270,14 +280,19 @@ private struct SettingsConnectionAccountSection: View {
             }
             .listRowBackground(LitterTheme.surface.opacity(0.6))
 
-            if server.isLocal, hasStoredApiKey {
+            if isDexManagedServer {
+                Text("This Mac is paired through Dex. Account changes happen on the desktop app.")
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .listRowBackground(LitterTheme.surface.opacity(0.6))
+            } else if server.isLocal, hasStoredApiKey {
                 Text("Local OpenAI API key is saved.")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.accent)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
-            if server.isLocal, !isChatGPTAccount {
+            if server.isLocal, !isChatGPTAccount, !isDexManagedServer {
                 Button {
                     Task {
                         isAuthWorking = true
@@ -299,7 +314,7 @@ private struct SettingsConnectionAccountSection: View {
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
-            if server.isLocal, allowsLocalEnvApiKey {
+            if server.isLocal, allowsLocalEnvApiKey, !isDexManagedServer {
                 HStack(spacing: 8) {
                     VStack(alignment: .leading, spacing: 6) {
                         if hasStoredApiKey {
@@ -335,7 +350,7 @@ private struct SettingsConnectionAccountSection: View {
                 .listRowBackground(LitterTheme.surface.opacity(0.6))
             }
 
-            if !server.isLocal {
+            if !server.isLocal && !isDexManagedServer {
                 Text("Remote servers use their own OAuth flow when authentication is needed. Settings login and API key entry stay local-only.")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textSecondary)
@@ -354,6 +369,9 @@ private struct SettingsConnectionAccountSection: View {
         }
         .task(id: server.serverId) {
             hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
+            if isDexManagedServer {
+                await appModel.loadDexServerAuthStateIfNeeded(serverId: server.serverId)
+            }
         }
     }
 
@@ -369,6 +387,9 @@ private struct SettingsConnectionAccountSection: View {
     }
 
     private var authColor: Color {
+        if isDexManagedServer {
+            return dexSessionState?.authenticated == true ? LitterTheme.success : LitterTheme.textMuted
+        }
         switch server.account {
         case .chatgpt?:
             return LitterTheme.accent
@@ -380,6 +401,9 @@ private struct SettingsConnectionAccountSection: View {
     }
 
     private var authTitle: String {
+        if isDexManagedServer {
+            return server.displayName
+        }
         switch server.account {
         case .chatgpt(let email, _)?:
             return email.isEmpty ? "ChatGPT" : email
@@ -391,6 +415,12 @@ private struct SettingsConnectionAccountSection: View {
     }
 
     private var authSubtitle: String? {
+        if isDexManagedServer {
+            if let role = dexSessionState?.role {
+                return role == "owner" ? "Dex desktop owner session" : "Dex desktop paired session"
+            }
+            return "Paired through Dex desktop"
+        }
         switch server.account {
         case .chatgpt?:
             return "ChatGPT account"

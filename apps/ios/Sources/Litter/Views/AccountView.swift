@@ -6,13 +6,13 @@ struct AccountView: View {
 
     private var server: AppServerSnapshot? {
         if let activeServerId = appModel.snapshot?.activeThread?.serverId,
-           let activeServer = appModel.snapshot?.servers.first(where: { $0.serverId == activeServerId }) {
+           let activeServer = appModel.serverSnapshot(for: activeServerId) {
             return activeServer
         }
-        if let localServer = appModel.snapshot?.servers.first(where: \.isLocal) {
+        if let localServer = appModel.allServerSnapshots().first(where: \.isLocal) {
             return localServer
         }
-        return appModel.snapshot?.servers.first
+        return appModel.allServerSnapshots().first
     }
 
     var body: some View {
@@ -33,6 +33,14 @@ private struct AccountConnectionView: View {
     @State private var isWorking = false
     @State private var authError: String?
     @State private var hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
+
+    private var isDexManagedServer: Bool {
+        appModel.isDexManagedServer(server.serverId)
+    }
+
+    private var dexSessionState: DexAuthSessionState? {
+        appModel.dexAuthSessionState(for: server.serverId)
+    }
 
     var body: some View {
         NavigationStack {
@@ -62,7 +70,11 @@ private struct AccountConnectionView: View {
                 }
             }
             .task(id: server.serverId) {
-                await refreshAccount()
+                if isDexManagedServer {
+                    await appModel.loadDexServerAuthStateIfNeeded(serverId: server.serverId)
+                } else {
+                    await refreshAccount()
+                }
                 hasStoredApiKey = OpenAIApiKeyStore.shared.hasStoredKey
             }
         }
@@ -90,7 +102,7 @@ private struct AccountConnectionView: View {
                     }
                 }
                 Spacer()
-                if server.isLocal, server.account != nil {
+                if server.isLocal, server.account != nil, !isDexManagedServer {
                     Button("Logout") {
                         Task { await logout() }
                     }
@@ -104,7 +116,12 @@ private struct AccountConnectionView: View {
             .cornerRadius(10)
             .padding(.horizontal, 16)
 
-            if server.isLocal, hasStoredApiKey {
+            if isDexManagedServer, let dexSubtitle = dexManagedDetailText {
+                Text(dexSubtitle)
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .padding(.horizontal, 20)
+            } else if server.isLocal, hasStoredApiKey {
                 Text("Local OpenAI API key is saved.")
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.accent)
@@ -120,7 +137,12 @@ private struct AccountConnectionView: View {
                 .foregroundColor(LitterTheme.textMuted)
                 .padding(.horizontal, 20)
 
-            if server.isLocal, !isChatGPTAccount {
+            if isDexManagedServer {
+                Text("This Mac is paired through Dex. Account changes happen on the desktop app.")
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .padding(.horizontal, 20)
+            } else if server.isLocal, !isChatGPTAccount {
                 Button {
                     Task {
                         isWorking = true
@@ -215,6 +237,9 @@ private struct AccountConnectionView: View {
         return false
     }
     private var authColor: Color {
+        if isDexManagedServer {
+            return dexSessionState?.authenticated == true ? LitterTheme.success : LitterTheme.textMuted
+        }
         switch server.account {
         case .chatgpt?:
             return LitterTheme.accent
@@ -226,6 +251,9 @@ private struct AccountConnectionView: View {
     }
 
     private var authTitle: String {
+        if isDexManagedServer {
+            return server.displayName
+        }
         switch server.account {
         case .chatgpt(let email, _)?:
             return email.isEmpty ? "ChatGPT" : email
@@ -237,6 +265,12 @@ private struct AccountConnectionView: View {
     }
 
     private var authSubtitle: String? {
+        if isDexManagedServer {
+            if let role = dexSessionState?.role {
+                return role == "owner" ? "Dex desktop owner session" : "Dex desktop paired session"
+            }
+            return "Paired through Dex desktop"
+        }
         switch server.account {
         case .chatgpt?:
             return "ChatGPT account"
@@ -245,6 +279,14 @@ private struct AccountConnectionView: View {
         case nil:
             return nil
         }
+    }
+
+    private var dexManagedDetailText: String? {
+        guard isDexManagedServer else { return nil }
+        if let expiresAt = dexSessionState?.expiresAt {
+            return "Session managed by Dex desktop. Expires \(expiresAt)."
+        }
+        return "Session managed by Dex desktop."
     }
 
     private func refreshAccount() async {
