@@ -7,8 +7,6 @@ final class SessionsModel {
     private struct DexSnapshot: Equatable {
         let sessionSummaries: [AppSessionSummary]
         let connectedServers: [HomeDashboardServer]
-        let launchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession]
-        let launchSessionByServerId: [String: DexCompanionBrowserSession]
     }
 
     struct ThreadEphemeralState: Equatable {
@@ -23,8 +21,6 @@ final class SessionsModel {
         let ephemeralStateByThreadKey: [ThreadKey: ThreadEphemeralState]
         let activeThreadKey: ThreadKey?
         let frozenMostRecentThreadOrder: [ThreadKey]?
-        let dexLaunchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession]
-        let dexLaunchSessionByServerId: [String: DexCompanionBrowserSession]
     }
 
     private(set) var derivedData: SessionsDerivedData = .empty
@@ -32,8 +28,6 @@ final class SessionsModel {
     private(set) var connectedServers: [HomeDashboardServer] = []
     private(set) var ephemeralStateByThreadKey: [ThreadKey: ThreadEphemeralState] = [:]
     private(set) var activeThreadKey: ThreadKey?
-    private(set) var dexLaunchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession] = [:]
-    private(set) var dexLaunchSessionByServerId: [String: DexCompanionBrowserSession] = [:]
 
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private weak var appState: AppState?
@@ -44,9 +38,7 @@ final class SessionsModel {
     @ObservationIgnored private var lastPublishedSnapshot: Snapshot?
     @ObservationIgnored private var dexSnapshot = DexSnapshot(
         sessionSummaries: [],
-        connectedServers: [],
-        launchSessionByThreadKey: [:],
-        launchSessionByServerId: [:]
+        connectedServers: []
     )
     @ObservationIgnored private var dexRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var dexPollingTask: Task<Void, Never>?
@@ -118,7 +110,8 @@ final class SessionsModel {
                 DirectoryPickerServerOption(
                     id: $0.id,
                     name: $0.displayName,
-                    sourceLabel: $0.sourceLabel
+                    sourceLabel: $0.sourceLabel,
+                    workspaceRoot: $0.workspaceRoot
                 )
             }
 
@@ -150,9 +143,7 @@ final class SessionsModel {
                 connectedServers: nextConnectedServers,
                 ephemeralStateByThreadKey: nextEphemeralStateByThreadKey,
                 activeThreadKey: appSnapshot?.activeThread,
-                frozenMostRecentThreadOrder: nextFrozenMostRecentThreadOrder,
-                dexLaunchSessionByThreadKey: dexSnapshot.launchSessionByThreadKey,
-                dexLaunchSessionByServerId: dexSnapshot.launchSessionByServerId
+                frozenMostRecentThreadOrder: nextFrozenMostRecentThreadOrder
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -182,12 +173,6 @@ final class SessionsModel {
         if previousSnapshot?.activeThreadKey != snapshot.activeThreadKey {
             activeThreadKey = snapshot.activeThreadKey
         }
-        if previousSnapshot?.dexLaunchSessionByThreadKey != snapshot.dexLaunchSessionByThreadKey {
-            dexLaunchSessionByThreadKey = snapshot.dexLaunchSessionByThreadKey
-        }
-        if previousSnapshot?.dexLaunchSessionByServerId != snapshot.dexLaunchSessionByServerId {
-            dexLaunchSessionByServerId = snapshot.dexLaunchSessionByServerId
-        }
         if previousSnapshot?.derivedData != snapshot.derivedData {
             derivedData = snapshot.derivedData
         }
@@ -201,9 +186,7 @@ final class SessionsModel {
             guard !Task.isCancelled else { return }
             self.dexSnapshot = DexSnapshot(
                 sessionSummaries: snapshot.sessionSummaries,
-                connectedServers: snapshot.connectedServers,
-                launchSessionByThreadKey: snapshot.launchSessionByThreadKey,
-                launchSessionByServerId: snapshot.launchSessionByServerId
+                connectedServers: snapshot.connectedServers
             )
             self.refreshState()
         }

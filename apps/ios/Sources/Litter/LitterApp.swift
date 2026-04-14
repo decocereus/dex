@@ -484,7 +484,8 @@ private struct HomeNavigationView: View {
             DirectoryPickerServerOption(
                 id: server.id,
                 name: server.displayName,
-                sourceLabel: server.sourceLabel
+                sourceLabel: server.sourceLabel,
+                workspaceRoot: server.workspaceRoot
             )
         }
     }
@@ -1132,9 +1133,6 @@ private struct ConversationDestinationScreen: View {
                 .onChange(of: conversationThread) { _, updatedThread in
                     bindScreenModel(for: updatedThread)
                 }
-                .onChange(of: appModel.snapshotRevision) { _, _ in
-                    bindScreenModel(for: conversationThread)
-                }
                 .onChange(of: pendingUserInputsForThread) { _, _ in
                     bindScreenModel(for: conversationThread)
                 }
@@ -1237,9 +1235,6 @@ private struct ReplayDestinationScreen: View {
                 )
                 .onAppear { bindScreenModel(for: thread) }
                 .onChange(of: thread) { _, t in bindScreenModel(for: t) }
-                .onChange(of: appModel.snapshotRevision) { _, _ in
-                    if let t = conversationThread { bindScreenModel(for: t) }
-                }
             } else {
                 VStack(spacing: 16) {
                     Spacer()

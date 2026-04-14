@@ -8,6 +8,7 @@ struct DirectoryPickerServerOption: Identifiable, Hashable {
     let id: String
     let name: String
     let sourceLabel: String
+    let workspaceRoot: String?
 }
 
 private struct DirectoryPathBreadcrumb: Identifiable {
@@ -35,6 +36,7 @@ private enum DirectoryPickerStrings {
     static let clear = String(localized: "directory_picker_clear")
     static let noServerSelected = String(localized: "directory_picker_no_server_selected")
     static let serverNotConnected = String(localized: "directory_picker_server_not_connected")
+    static let pairedProjectRoot = "Using the paired project directory on your Mac."
 
     static func connectedServer(_ label: String) -> String {
         String.localizedStringWithFormat(String(localized: "directory_picker_connected_server"), label)
@@ -128,7 +130,8 @@ private final class DirectoryPickerSheetModel {
     func loadInitialPath(
         selectedServerId: String,
         appModel: AppModel,
-        isLocalServer: Bool
+        isLocalServer: Bool,
+        fixedPath: String? = nil
     ) async {
         let signpostID = OSSignpostID(log: directoryPickerSignpostLog)
         os_signpost(
@@ -161,6 +164,13 @@ private final class DirectoryPickerSheetModel {
         errorMessage = nil
         allEntries = []
         currentPath = ""
+
+        if let fixedPath = fixedPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !fixedPath.isEmpty {
+            currentPath = fixedPath
+            isLoading = false
+            return
+        }
 
         let home = await resolveHome(for: targetServerId, appModel: appModel, isLocalServer: isLocalServer)
         guard targetServerId == selectedServerId else { return }
@@ -338,17 +348,31 @@ struct DirectoryPickerView: View {
     }
 
     private var selectedServerSnapshot: AppServerSnapshot? {
-        appModel.snapshot?.servers.first(where: { $0.serverId == selectedServerId })
+        appModel.serverSnapshot(for: selectedServerId)
     }
 
     private var selectedServerIsLocal: Bool {
         selectedServerSnapshot?.isLocal ?? false
     }
 
+    private var selectedServerIsDexManaged: Bool {
+        DexCompanionRouting.environmentId(fromServerId: selectedServerId) != nil
+    }
+
+    private var fixedDirectoryPath: String? {
+        guard selectedServerIsDexManaged else { return nil }
+        let trimmed = selectedServerOption?.workspaceRoot?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var usesFixedDirectoryPath: Bool {
+        fixedDirectoryPath != nil
+    }
+
     private var canSelectPath: Bool {
         !model.currentPath.isEmpty &&
-            selectedServerSnapshot?.canBrowseDirectories == true &&
-            selectedServerOption != nil
+            selectedServerOption != nil &&
+            (usesFixedDirectoryPath || selectedServerSnapshot?.canBrowseDirectories == true)
     }
 
     private var showRecentDirectories: Bool {
@@ -380,14 +404,15 @@ struct DirectoryPickerView: View {
         }
         .navigationTitle(DirectoryPickerStrings.title)
         .navigationBarTitleDisplayMode(.inline)
-        .interactiveDismissDisabled(model.canNavigateUp)
+        .interactiveDismissDisabled(model.canNavigateUp && !usesFixedDirectoryPath)
         .task(id: selectedServerId) {
             onServerChanged?(selectedServerId)
             model.handleServerSelectionChanged(selectedServerId)
             await model.loadInitialPath(
                 selectedServerId: selectedServerId,
                 appModel: appModel,
-                isLocalServer: selectedServerIsLocal
+                isLocalServer: selectedServerIsLocal,
+                fixedPath: fixedDirectoryPath
             )
         }
         .onChange(of: servers.map(\.id)) { _, ids in
@@ -482,42 +507,54 @@ struct DirectoryPickerView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    Button {
-                        Task {
-                            await model.navigateUp(
-                                selectedServerId: selectedServerId,
-                                appModel: appModel,
-                                isLocalServer: selectedServerIsLocal
-                            )
-                        }
-                    } label: {
-                        Label(DirectoryPickerStrings.upOneLevel, systemImage: "arrow.up.backward")
+                    if usesFixedDirectoryPath {
+                        Text("Paired Project")
                             .litterFont(.caption)
-                    }
-                    .disabled(!model.canNavigateUp)
-
-                    ForEach(model.pathSegments()) { segment in
+                            .foregroundColor(LitterTheme.textOnAccent)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(LitterTheme.accent)
+                            )
+                    } else {
                         Button {
                             Task {
-                                await model.navigateToPath(
-                                    segment.path,
+                                await model.navigateUp(
                                     selectedServerId: selectedServerId,
                                     appModel: appModel,
                                     isLocalServer: selectedServerIsLocal
                                 )
                             }
                         } label: {
-                            Text(segment.label)
+                            Label(DirectoryPickerStrings.upOneLevel, systemImage: "arrow.up.backward")
                                 .litterFont(.caption)
-                                .foregroundColor(segment.path == model.currentPath ? LitterTheme.textOnAccent : LitterTheme.textSecondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(segment.path == model.currentPath ? LitterTheme.accent : LitterTheme.surface.opacity(0.65))
-                                )
                         }
-                        .buttonStyle(.plain)
+                        .disabled(!model.canNavigateUp)
+
+                        ForEach(model.pathSegments()) { segment in
+                            Button {
+                                Task {
+                                    await model.navigateToPath(
+                                        segment.path,
+                                        selectedServerId: selectedServerId,
+                                        appModel: appModel,
+                                        isLocalServer: selectedServerIsLocal
+                                    )
+                                }
+                            } label: {
+                                Text(segment.label)
+                                    .litterFont(.caption)
+                                    .foregroundColor(segment.path == model.currentPath ? LitterTheme.textOnAccent : LitterTheme.textSecondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(segment.path == model.currentPath ? LitterTheme.accent : LitterTheme.surface.opacity(0.65))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 }
             }
@@ -559,6 +596,21 @@ struct DirectoryPickerView: View {
                     }
                     .foregroundColor(LitterTheme.accent)
                 }
+            }
+            .frame(maxHeight: .infinity)
+        } else if usesFixedDirectoryPath {
+            VStack(spacing: 12) {
+                Image(systemName: "folder.badge.checkmark")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundColor(LitterTheme.accent)
+                Text("Project Directory Ready")
+                    .litterFont(.subheadline)
+                    .foregroundColor(LitterTheme.textPrimary)
+                Text(DirectoryPickerStrings.pairedProjectRoot)
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
             }
             .frame(maxHeight: .infinity)
         } else {

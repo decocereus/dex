@@ -1239,6 +1239,10 @@ export function ConnectionsSettings() {
     }
     return null;
   }, [currentAuthPolicy, desktopServerExposureState?.endpointUrl]);
+  const connectedDesktopPhoneClients = useMemo(
+    () => desktopClientSessions.filter((clientSession) => clientSession.connected),
+    [desktopClientSessions],
+  );
   return (
     <SettingsPageContainer>
       {canManageLocalBackend ? (
@@ -1248,15 +1252,25 @@ export function ConnectionsSettings() {
               <SettingsRow
                 title="Connect iPhone"
                 description={
-                  phonePairingEndpointUrl
-                    ? "Open the iPhone app and scan the QR."
-                    : desktopServerExposureState
-                      ? "Turn on phone access, then scan the QR in the iPhone app."
-                      : "Loading phone access…"
+                  connectedDesktopPhoneClients.length > 0
+                    ? connectedDesktopPhoneClients.length === 1
+                      ? "1 iPhone is connected and ready."
+                      : `${connectedDesktopPhoneClients.length} iPhones are connected and ready.`
+                    : phonePairingEndpointUrl
+                      ? "Open the iPhone app and scan the QR."
+                      : desktopServerExposureState
+                        ? "Turn on phone access, then scan the QR in the iPhone app."
+                        : "Loading phone access…"
                 }
                 status={
                   desktopServerExposureError ? (
                     <span className="block text-destructive">{desktopServerExposureError}</span>
+                  ) : connectedDesktopPhoneClients.length > 0 ? (
+                    <span className="block text-success">
+                      {connectedDesktopPhoneClients.length === 1
+                        ? "iPhone connected successfully."
+                        : `${connectedDesktopPhoneClients.length} iPhones connected successfully.`}
+                    </span>
                   ) : null
                 }
                 control={

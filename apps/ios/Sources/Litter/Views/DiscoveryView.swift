@@ -25,6 +25,7 @@ struct DiscoveryView: View {
     @State private var showQRPairingSheet = false
     @State private var savedDexCompanionSessions: [DexCompanionSavedSession] =
         DexCompanionSessionStore.load()
+    @State private var connectionSuccessMessage: String?
     @Environment(AppState.self) private var appState
     private let autoStartDiscovery: Bool
     private let initialServers: [DiscoveredServer]
@@ -81,6 +82,7 @@ struct DiscoveryView: View {
             let session = try await DexCompanionPairingClient().redeem(payload)
             DexCompanionSessionStore.upsert(from: session)
             savedDexCompanionSessions = DexCompanionSessionStore.load()
+            showConnectionSuccess("Connected to \(session.serverLabel). Choose it below to continue.")
         } catch {
             connectError = error.localizedDescription
         }
@@ -267,6 +269,20 @@ struct DiscoveryView: View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             List {
+                if let connectionSuccessMessage {
+                    Section {
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(LitterTheme.accentStrong)
+                                .frame(width: 24)
+                            Text(connectionSuccessMessage)
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textPrimary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listRowBackground(LitterTheme.surface.opacity(0.6))
+                }
                 serversSection
                 pairedMacsSection
                 manualSection
@@ -340,6 +356,7 @@ struct DiscoveryView: View {
             if let server = pendingAutoNavigateServer
                 ?? discovery.servers.first(where: { $0.id == pendingAutoNavigateServerId }) {
                 self.pendingAutoNavigateServer = nil
+                showConnectionSuccess("Connected to \(server.name).")
                 navigateAfterConnect(server)
             }
         } else if serverSnapshot.health == .disconnected,
@@ -347,6 +364,16 @@ struct DiscoveryView: View {
             self.pendingAutoNavigateServerId = nil
             self.pendingAutoNavigateServer = nil
             connectError = message
+        }
+    }
+
+    @MainActor
+    private func showConnectionSuccess(_ message: String) {
+        connectionSuccessMessage = message
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard connectionSuccessMessage == message else { return }
+            connectionSuccessMessage = nil
         }
     }
 

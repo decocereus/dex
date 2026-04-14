@@ -1424,6 +1424,14 @@ final class AppModel {
             browserSession: browserSession,
             snapshot: nativeSnapshot
         )
+        let didChange =
+            dexServerSnapshots[key.serverId] != overlay.serverSnapshot ||
+            dexThreadSnapshots[key] != overlay.threadSnapshot ||
+            dexPendingApprovalsByThread[key] != overlay.pendingApprovals ||
+            dexPendingUserInputsByThread[key] != overlay.pendingUserInputs
+
+        guard didChange else { return }
+
         dexServerSnapshots[key.serverId] = overlay.serverSnapshot
         dexThreadSnapshots[key] = overlay.threadSnapshot
         dexPendingApprovalsByThread[key] = overlay.pendingApprovals
@@ -1454,17 +1462,12 @@ final class AppModel {
                 do {
                     try await client.streamNativeThreadSnapshots(threadId: key.threadId) { snapshot in
                         guard !Task.isCancelled else { return }
-                        let overlay = DexNativeThreadAdapter.makeOverlay(
-                            serverId: key.serverId,
-                            browserSession: browserSession,
-                            snapshot: snapshot
-                        )
                         await MainActor.run {
-                            self.dexServerSnapshots[key.serverId] = overlay.serverSnapshot
-                            self.dexThreadSnapshots[key] = overlay.threadSnapshot
-                            self.dexPendingApprovalsByThread[key] = overlay.pendingApprovals
-                            self.dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
-                            self.snapshotRevision &+= 1
+                            self.applyDexThreadSnapshot(
+                                key: key,
+                                browserSession: browserSession,
+                                nativeSnapshot: snapshot
+                            )
                         }
                     }
                     break
@@ -1738,7 +1741,9 @@ final class AppModel {
             return
         }
         do {
-            dexAuthSessionStateByServerId[serverId] = try await client.fetchAuthSessionState()
+            let nextState = try await client.fetchAuthSessionState()
+            guard dexAuthSessionStateByServerId[serverId] != nextState else { return }
+            dexAuthSessionStateByServerId[serverId] = nextState
             snapshotRevision &+= 1
         } catch {
             lastError = error.localizedDescription

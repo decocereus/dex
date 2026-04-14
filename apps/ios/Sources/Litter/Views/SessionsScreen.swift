@@ -338,7 +338,11 @@ struct SessionsScreen: View {
     private var newSessionButton: some View {
         Button {
             if let defaultServerId = defaultNewSessionServerId(preferredServerId: appState.sessionsSelectedServerFilterId) {
-                if connectedServers.first(where: { $0.id == defaultServerId })?.isLocal == true {
+                if let server = connectedServers.first(where: { $0.id == defaultServerId }),
+                   DexCompanionRouting.environmentId(fromServerId: defaultServerId) != nil {
+                    let cwd = server.workspaceRoot ?? ""
+                    Task { await startNewSession(serverId: defaultServerId, cwd: cwd) }
+                } else if connectedServers.first(where: { $0.id == defaultServerId })?.isLocal == true {
                     let cwd = codex_ios_default_cwd() as String? ?? NSHomeDirectory()
                     Task { await startNewSession(serverId: defaultServerId, cwd: cwd) }
                 } else {
