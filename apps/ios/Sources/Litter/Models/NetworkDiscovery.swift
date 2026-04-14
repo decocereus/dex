@@ -106,7 +106,6 @@ final class NetworkDiscovery {
     @ObservationIgnored private var initialLoadTask: Task<Void, Never>?
     @ObservationIgnored private var activeScanID = UUID()
     @ObservationIgnored private var networkServerLastSeen: [String: Date] = [:]
-    @ObservationIgnored private let discoveryStore = DiscoveryBridge()
 
     private let cacheKey = "litter.discovery.networkServers.v1"
     private let cacheRetention: TimeInterval = 7 * 24 * 60 * 60
@@ -191,9 +190,6 @@ final class NetworkDiscovery {
         }
         guard isCurrent else { return }
 
-        let store = await MainActor.run { [weak self] in self?.discoveryStore }
-        guard let store else { return }
-
         let tailscaleDiagnostics = TailscaleDiscoveryDiagnostics()
         let tailscaleAppInstalled = await MainActor.run { Self.isTailscaleAppInstalled() }
         async let tailscaleNoticeProbe: Void = Self.probeTailscaleDiscoveryNotice(
@@ -209,33 +205,25 @@ final class NetworkDiscovery {
         await MainActor.run { [weak self] in
             guard let self, self.activeScanID == scanID else { return }
             self.scanProgress = 0.02
-            self.scanProgressLabel = "Scanning network…"
+            self.scanProgressLabel = "Resolving services…"
         }
 
-        let subscription = store.scanServersWithMdnsContextProgressive(
-            seeds: seeds.map {
-                AppMdnsSeed(name: $0.name, host: $0.host, port: $0.port, serviceType: $0.serviceType)
-            },
-            localIpv4: localIPv4
+        let metadataSources = await MainActor.run { [weak self] in
+            guard let self else { return [DiscoveredServer]() }
+            return self.loadSavedNetworkServers() + self.servers.filter { $0.source != .local }
+        }
+        let discovered = Self.discoveredServers(
+            from: seeds,
+            localIpv4: localIPv4,
+            metadataSources: metadataSources
         )
-
-        do {
-            while !Task.isCancelled {
-                let update = try await subscription.nextEvent()
-                guard !Task.isCancelled else { return }
-                await MainActor.run { [weak self] in
-                    guard let self, self.activeScanID == scanID else { return }
-                    self.isInitialLoad = false
-                    self.applyRustDiscoveryResults(update.servers)
-                    self.scanProgress = update.progress
-                    self.scanProgressLabel = update.progressLabel
-                }
-                if update.kind == .scanComplete {
-                    break
-                }
-            }
-        } catch {
-            guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }
+        await MainActor.run { [weak self] in
+            guard let self, self.activeScanID == scanID else { return }
+            self.isInitialLoad = false
+            self.applyDiscoveredServers(discovered)
+            self.scanProgress = 1
+            self.scanProgressLabel = discovered.isEmpty ? "No servers found" : "Found \(discovered.count) server\(discovered.count == 1 ? "" : "s")"
         }
 
         _ = await tailscaleNoticeProbe
@@ -246,72 +234,39 @@ final class NetworkDiscovery {
         }
     }
 
-    private func applyRustDiscoveryResults(_ discovered: [AppDiscoveredServer]) {
+    private func applyDiscoveredServers(_ discovered: [DiscoveredServer]) {
         let now = Date()
-        let metadataSources = loadSavedNetworkServers() + servers.filter { $0.source != .local }
-        var existingByKey: [String: DiscoveredServer] = [:]
-        for server in metadataSources {
-            existingByKey[server.deduplicationKey] = server
-        }
-        let resolved = discovered.compactMap { rust -> DiscoveredServer? in
-            let existing = existingByKey[Self.normalizedServerKey(for: rust.host)]
-            guard let server = Self.discoveredServer(from: rust, existing: existing) else {
-                return nil
-            }
+        for server in discovered {
             networkServerLastSeen[server.id] = now
-            return server
         }
 
         let local = servers.filter { $0.source == .local }
-        servers = local + reconcileNetworkServers(resolved + metadataSources)
+        let metadataSources = loadSavedNetworkServers() + servers.filter { $0.source != .local }
+        servers = local + reconcileNetworkServers(discovered + metadataSources)
         saveCachedNetworkServers()
     }
 
-    private static func discoveredServer(
-        from rust: AppDiscoveredServer,
-        existing: DiscoveredServer?
-    ) -> DiscoveredServer? {
-        let host = rust.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, host != "127.0.0.1" else { return nil }
-
-        let id = rust.id.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = rust.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return DiscoveredServer(
-            id: id.isEmpty ? "network-\(host)" : id,
-            name: name.isEmpty ? host : name,
-            hostname: host,
-            port: rust.codexPort,
-            codexPorts: rust.codexPorts,
-            sshPort: rust.sshPort,
-            source: ServerSource(rust.source),
-            hasCodexServer: rust.codexPort != nil || !rust.codexPorts.isEmpty,
-            wakeMAC: existing?.wakeMAC,
-            sshPortForwardingEnabled: false,
-            websocketURL: existing?.websocketURL,
-            preferredConnectionMode: existing?.preferredConnectionMode,
-            preferredCodexPort: existing?.preferredCodexPort,
-            os: rust.sshBanner != nil ? rust.os : (rust.os ?? existing?.os),
-            sshBanner: rust.sshBanner ?? existing?.sshBanner
-        )
-    }
-
     private func reconcileNetworkServers(_ candidates: [DiscoveredServer]) -> [DiscoveredServer] {
-        var existingByKey: [String: DiscoveredServer] = [:]
+        var mergedByKey: [String: DiscoveredServer] = [:]
+
         for server in candidates where server.source != .local {
-            existingByKey[server.deduplicationKey] = server
-        }
-        return discoveryStore
-            .reconcileServers(
-                candidates: candidates
-                    .filter { $0.source != .local }
-                    .map(Self.ffiDiscoveredServer(from:))
-            )
-            .compactMap { rust in
-                Self.discoveredServer(
-                    from: rust,
-                    existing: existingByKey[Self.normalizedServerKey(for: rust.host)]
-                )
+            let key = server.deduplicationKey
+            if let existing = mergedByKey[key] {
+                mergedByKey[key] = Self.mergeServers(existing: existing, incoming: server)
+            } else {
+                mergedByKey[key] = server
             }
+        }
+
+        return mergedByKey.values.sorted { lhs, rhs in
+            let lhsName = lhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rhsName = rhs.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let nameOrder = lhsName.localizedCaseInsensitiveCompare(rhsName)
+            if nameOrder != .orderedSame {
+                return nameOrder == .orderedAscending
+            }
+            return lhs.hostname.localizedCaseInsensitiveCompare(rhs.hostname) == .orderedAscending
+        }
     }
 
     private func loadSavedNetworkServers() -> [DiscoveredServer] {
@@ -320,7 +275,7 @@ final class NetworkDiscovery {
             .filter { $0.source != .local }
     }
 
-    private static func normalizedServerKey(for host: String) -> String {
+    nonisolated private static func normalizedServerKey(for host: String) -> String {
         var normalized = host
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
@@ -333,32 +288,75 @@ final class NetworkDiscovery {
         return normalized.lowercased()
     }
 
-    private static func ffiDiscoveredServer(from server: DiscoveredServer) -> AppDiscoveredServer {
-        AppDiscoveredServer(
-            id: server.id,
-            displayName: server.name,
-            host: server.hostname,
-            port: server.port ?? server.resolvedSSHPort,
-            codexPort: server.port,
-            codexPorts: server.codexPorts,
-            sshPort: server.sshPort,
-            source: {
-                switch server.source {
-                case .local:
-                    return .local
-                case .bonjour:
-                    return .bonjour
-                case .ssh:
-                    return .manual
-                case .tailscale:
-                    return .tailscale
-                case .manual:
-                    return .manual
-                }
-            }(),
-            reachable: server.hasCodexServer || server.sshPort != nil,
-            os: server.os,
-            sshBanner: server.sshBanner
+    nonisolated private static func discoveredServers(
+        from seeds: [BonjourDiscoverySeed],
+        localIpv4: String?,
+        metadataSources: [DiscoveredServer]
+    ) -> [DiscoveredServer] {
+        var existingByKey: [String: DiscoveredServer] = [:]
+        for server in metadataSources {
+            existingByKey[server.deduplicationKey] = server
+        }
+
+        return seeds.compactMap { seed in
+            let host = seed.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !host.isEmpty, host != "127.0.0.1", host != localIpv4 else { return nil }
+            let key = normalizedServerKey(for: host)
+            let existing = existingByKey[key]
+            let port = seed.port
+            let isCodex = seed.serviceType == "_codex._tcp."
+            let codexPorts = isCodex ? port.map { [$0] } ?? [] : (existing?.codexPorts ?? [])
+            let sshPort = seed.serviceType == "_ssh._tcp." ? port : (existing?.sshPort)
+
+            return DiscoveredServer(
+                id: existing?.id ?? "network-\(host)",
+                name: seed.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? (existing?.name ?? host) : seed.name,
+                hostname: host,
+                port: isCodex ? port : existing?.port,
+                codexPorts: codexPorts,
+                sshPort: sshPort,
+                source: existing?.source == .tailscale ? .tailscale : .bonjour,
+                hasCodexServer: isCodex || existing?.hasCodexServer == true,
+                wakeMAC: existing?.wakeMAC,
+                sshPortForwardingEnabled: existing?.sshPortForwardingEnabled ?? false,
+                websocketURL: existing?.websocketURL,
+                preferredConnectionMode: existing?.preferredConnectionMode,
+                preferredCodexPort: existing?.preferredCodexPort,
+                os: existing?.os,
+                sshBanner: existing?.sshBanner,
+                metadata: existing?.metadata ?? [:]
+            )
+        }
+    }
+
+    nonisolated private static func mergeServers(existing: DiscoveredServer, incoming: DiscoveredServer) -> DiscoveredServer {
+        let mergedCodexPorts = Array(Set(existing.codexPorts + incoming.codexPorts)).sorted()
+        let resolvedName: String = {
+            let existingName = existing.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let incomingName = incoming.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if existingName.isEmpty || existingName == existing.hostname {
+                return incomingName.isEmpty ? existing.name : incoming.name
+            }
+            return existing.name
+        }()
+
+        return DiscoveredServer(
+            id: existing.id,
+            name: resolvedName,
+            hostname: existing.hostname,
+            port: incoming.port ?? existing.port ?? mergedCodexPorts.first,
+            codexPorts: mergedCodexPorts,
+            sshPort: incoming.sshPort ?? existing.sshPort,
+            source: existing.source == .tailscale || incoming.source == .tailscale ? .tailscale : existing.source,
+            hasCodexServer: existing.hasCodexServer || incoming.hasCodexServer || !mergedCodexPorts.isEmpty,
+            wakeMAC: existing.wakeMAC ?? incoming.wakeMAC,
+            sshPortForwardingEnabled: existing.sshPortForwardingEnabled || incoming.sshPortForwardingEnabled,
+            websocketURL: existing.websocketURL ?? incoming.websocketURL,
+            preferredConnectionMode: existing.preferredConnectionMode ?? incoming.preferredConnectionMode,
+            preferredCodexPort: existing.preferredCodexPort ?? incoming.preferredCodexPort,
+            os: existing.os ?? incoming.os,
+            sshBanner: existing.sshBanner ?? incoming.sshBanner,
+            metadata: existing.metadata.merging(incoming.metadata) { current, _ in current }
         )
     }
 
