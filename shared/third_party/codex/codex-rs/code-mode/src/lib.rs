@@ -1,6 +1,14 @@
 mod description;
 mod response;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
 mod runtime;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[path = "runtime_stub.rs"]
+mod runtime;
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+mod service;
+#[cfg(any(target_os = "ios", target_os = "android"))]
+#[path = "service_stub.rs"]
 mod service;
 
 pub use description::CODE_MODE_PRAGMA_PREFIX;

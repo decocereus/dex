@@ -24,6 +24,33 @@ PATCH_FILES=(
   "$REPO_DIR/patches/codex/thread-read-permissions.patch"
 )
 
+patch_content_present() {
+  local patch_file="$1"
+  local patch_targets=()
+  local added_lines
+  local line
+  local trimmed
+
+  while IFS= read -r pf; do
+    [ -f "$SUBMODULE_DIR/$pf" ] && patch_targets+=("$SUBMODULE_DIR/$pf")
+  done < <(grep '^diff --git' "$patch_file" | sed 's|.*b/||')
+
+  if [ "${#patch_targets[@]}" -eq 0 ]; then
+    return 1
+  fi
+
+  added_lines="$(grep '^+[^+]' "$patch_file" | sed 's/^+//' | head -5)"
+  while IFS= read -r line; do
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    [ -z "$trimmed" ] && continue
+    if ! grep -qF "$trimmed" "${patch_targets[@]}" 2>/dev/null; then
+      return 1
+    fi
+  done <<< "$added_lines"
+
+  return 0
+}
+
 SYNC_MODE="--preserve-current"
 DEVICE_ONLY=0
 FAST_DEVICE=0
@@ -79,7 +106,9 @@ done
 
 PATCHES_WERE_APPLIED=()
 for PATCH_FILE in "${PATCH_FILES[@]}"; do
-  if git -C "$SUBMODULE_DIR" apply --reverse --check "$PATCH_FILE" >/dev/null 2>&1; then
+  if patch_content_present "$PATCH_FILE"; then
+    PATCHES_WERE_APPLIED+=("$PATCH_FILE")
+  elif git -C "$SUBMODULE_DIR" apply --reverse --check "$PATCH_FILE" >/dev/null 2>&1; then
     PATCHES_WERE_APPLIED+=("$PATCH_FILE")
   fi
 done

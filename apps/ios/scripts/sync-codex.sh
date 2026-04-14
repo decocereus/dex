@@ -18,6 +18,33 @@ patch_already_upstreamed() {
     return 1
 }
 
+patch_content_present() {
+    local patch_file="$1"
+    local patch_targets=()
+    local added_lines
+    local line
+    local trimmed
+
+    while IFS= read -r pf; do
+        [ -f "$SUBMODULE_DIR/$pf" ] && patch_targets+=("$SUBMODULE_DIR/$pf")
+    done < <(grep '^diff --git' "$patch_file" | sed 's|.*b/||')
+
+    if [ "${#patch_targets[@]}" -eq 0 ]; then
+        return 1
+    fi
+
+    added_lines="$(grep '^+[^+]' "$patch_file" | sed 's/^+//' | head -5)"
+    while IFS= read -r line; do
+        trimmed="${line#"${line%%[![:space:]]*}"}"
+        [ -z "$trimmed" ] && continue
+        if ! grep -qF "$trimmed" "${patch_targets[@]}" 2>/dev/null; then
+            return 1
+        fi
+    done <<< "$added_lines"
+
+    return 0
+}
+
 SYNC_MODE="${1:---preserve-current}"
 case "$SYNC_MODE" in
     --preserve-current|--recorded-gitlink)
@@ -59,7 +86,9 @@ for PATCH_FILE in "${PATCH_FILES[@]}"; do
         exit 1
     fi
 
-    if git -C "$SUBMODULE_DIR" apply --reverse --check "$PATCH_FILE" >/dev/null 2>&1; then
+    if patch_content_present "$PATCH_FILE"; then
+        echo "==> $PATCH_NAME already applied (content check)."
+    elif git -C "$SUBMODULE_DIR" apply --reverse --check "$PATCH_FILE" >/dev/null 2>&1; then
         echo "==> $PATCH_NAME already applied."
     elif git -C "$SUBMODULE_DIR" apply --check "$PATCH_FILE" >/dev/null 2>&1; then
         echo "==> Applying $PATCH_NAME to submodule..."
@@ -67,34 +96,9 @@ for PATCH_FILE in "${PATCH_FILES[@]}"; do
     elif patch_already_upstreamed "$PATCH_FILE"; then
         echo "==> $PATCH_NAME already present upstream; skipping patch apply."
     else
-        # When multiple patches touch the same files, reverse-check may fail even
-        # if the patch is applied.  Fall back to checking whether the added lines
-        # are already present in the files the patch actually touches.
-        patch_targets=()
-        while IFS= read -r pf; do
-            [ -f "$SUBMODULE_DIR/$pf" ] && patch_targets+=("$SUBMODULE_DIR/$pf")
-        done < <(grep '^diff --git' "$PATCH_FILE" | sed 's|.*b/||')
-        added_lines=$(grep '^+[^+]' "$PATCH_FILE" | sed 's/^+//' | head -5)
-        all_present=true
-        if [ "${#patch_targets[@]}" -eq 0 ]; then
-            all_present=false
-        else
-            while IFS= read -r line; do
-                trimmed="${line#"${line%%[![:space:]]*}"}"
-                [ -z "$trimmed" ] && continue
-                if ! grep -qF "$trimmed" "${patch_targets[@]}" 2>/dev/null; then
-                    all_present=false
-                    break
-                fi
-            done <<< "$added_lines"
-        fi
-        if [ "$all_present" = true ]; then
-            echo "==> $PATCH_NAME already applied (content check)."
-        else
-            echo "error: $PATCH_NAME no longer applies cleanly to codex $(git -C "$SUBMODULE_DIR" rev-parse --short HEAD)" >&2
-            echo "error: refresh $PATCH_FILE before rebuilding the bridge" >&2
-            exit 1
-        fi
+        echo "error: $PATCH_NAME no longer applies cleanly to codex $(git -C "$SUBMODULE_DIR" rev-parse --short HEAD)" >&2
+        echo "error: refresh $PATCH_FILE before rebuilding the bridge" >&2
+        exit 1
     fi
 done
 
