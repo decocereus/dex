@@ -1215,6 +1215,35 @@ final class AppModel {
             ?? []
     }
 
+    func searchFiles(
+        serverId: String,
+        params: AppSearchFilesRequest
+    ) async throws -> [FileSearchResult] {
+        if let dexClient = dexClient(for: serverId) {
+            let cwd = params.roots.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return try await dexClient.searchNativeFiles(
+                cwd: cwd.isEmpty ? "/" : cwd,
+                query: params.query,
+                limit: 50
+            )
+        }
+        return try await client.searchFiles(serverId: serverId, params: params)
+    }
+
+    func listSkills(
+        serverId: String,
+        params: AppListSkillsRequest
+    ) async throws -> [SkillMetadata] {
+        if let dexClient = dexClient(for: serverId) {
+            let cwd = params.cwds.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return try await dexClient.listNativeSkills(
+                cwd: cwd.isEmpty ? "/" : cwd,
+                forceReload: params.forceReload
+            )
+        }
+        return try await client.listSkills(serverId: serverId, params: params)
+    }
+
     func rateLimits(for serverId: String) -> RateLimitSnapshot? {
         snapshot?.serverSnapshot(for: serverId)?.rateLimits
             ?? dexServerSnapshots[serverId]?.rateLimits

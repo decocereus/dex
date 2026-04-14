@@ -263,7 +263,7 @@ struct ConversationView: View {
 
     private func searchComposerFiles(_ query: String) async throws -> [FileSearchResult] {
         let searchRoot = workDir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "/" : workDir
-        return try await appModel.client.searchFiles(
+        return try await appModel.searchFiles(
             serverId: activeThreadKey.serverId,
             params: AppSearchFilesRequest(
                 query: query,
@@ -1827,6 +1827,10 @@ private struct ConversationInputBar: View {
     }
 
     private func startReview() async {
+        if appModel.isDexManagedServer(snapshot.threadKey.serverId) {
+            slashErrorMessage = "Review isn't available for paired Mac threads yet."
+            return
+        }
         do {
             _ = try await appModel.client.startReview(
                 serverId: snapshot.threadKey.serverId,
@@ -1886,6 +1890,11 @@ private struct ConversationInputBar: View {
     }
 
     private func loadExperimentalFeatures() async {
+        if appModel.isDexManagedServer(snapshot.threadKey.serverId) {
+            experimentalFeatures = []
+            slashErrorMessage = "Experimental controls aren't available for paired Mac threads yet."
+            return
+        }
         guard appModel.serverSnapshot(for: snapshot.threadKey.serverId)?.canUseTransportActions == true else {
             experimentalFeatures = []
             slashErrorMessage = "Not connected to a server"
@@ -1913,6 +1922,10 @@ private struct ConversationInputBar: View {
     }
 
     private func setExperimentalFeature(named featureName: String, enabled: Bool) async {
+        if appModel.isDexManagedServer(snapshot.threadKey.serverId) {
+            slashErrorMessage = "Experimental controls aren't available for paired Mac threads yet."
+            return
+        }
         guard appModel.serverSnapshot(for: snapshot.threadKey.serverId)?.canUseTransportActions == true else {
             slashErrorMessage = "Not connected to a server"
             return
@@ -1964,7 +1977,9 @@ private struct ConversationInputBar: View {
     }
 
     private func loadSkills(forceReload: Bool = false, showErrors: Bool) async {
-        guard appModel.serverSnapshot(for: snapshot.threadKey.serverId)?.canUseTransportActions == true else {
+        let isDexManagedServer = appModel.isDexManagedServer(snapshot.threadKey.serverId)
+        guard isDexManagedServer ||
+                appModel.serverSnapshot(for: snapshot.threadKey.serverId)?.canUseTransportActions == true else {
             skills = []
             mentionSkillPathsByName = [:]
             if showErrors {
@@ -1975,7 +1990,7 @@ private struct ConversationInputBar: View {
         skillsLoading = true
         defer { skillsLoading = false }
         do {
-            let fetchedSkills = try await appModel.client.listSkills(
+            let fetchedSkills = try await appModel.listSkills(
                 serverId: snapshot.threadKey.serverId,
                 params: AppListSkillsRequest(
                     cwds: [workDir],

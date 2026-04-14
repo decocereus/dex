@@ -11,8 +11,10 @@ import {
   OrchestrationGetSnapshotError,
   type OrchestrationReadModel,
   ProjectId,
+  ProjectSearchEntriesInput,
   ProviderInteractionMode,
   RuntimeMode,
+  type ServerProviderSkill,
   ThreadId,
   TrimmedNonEmptyString,
 } from "@dex/contracts";
@@ -32,6 +34,8 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "./Services/ProjectionSnapshotQuery.ts";
 import { ServerEnvironment } from "../environment/Services/ServerEnvironment.ts";
+import { WorkspaceEntries } from "../workspace/Services/WorkspaceEntries.ts";
+import { ProviderRegistry } from "../provider/Services/ProviderRegistry.ts";
 
 const respondToOrchestrationHttpError = (
   error: OrchestrationDispatchCommandError | OrchestrationGetSnapshotError,
@@ -152,6 +156,11 @@ const CompanionNativeThreadConfigureInput = Schema.Struct({
 
 const CompanionNativeThreadArchiveInput = Schema.Struct({
   threadId: ThreadId,
+});
+
+const CompanionNativeSkillsRequest = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  forceReload: Schema.optional(Schema.Boolean),
 });
 
 function isNativeThreadStreamEvent(event: OrchestrationEvent): boolean {
@@ -582,6 +591,98 @@ export const companionNativeThreadArchiveRouteLayer = HttpRouter.add(
       );
 
     return HttpServerResponse.jsonUnsafe(result, { status: 200 });
+  }).pipe(
+    Effect.catchTag("AuthError", respondToAuthError),
+    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+  ),
+);
+
+export const companionNativeFileSearchRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/files/search",
+  Effect.gen(function* () {
+    yield* authenticateSession;
+    const workspaceEntries = yield* WorkspaceEntries;
+    const payload = yield* HttpServerRequest.schemaBodyJson(ProjectSearchEntriesInput).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: "Invalid native companion file search payload.",
+            cause,
+          }),
+      ),
+    );
+
+    const result = yield* workspaceEntries.search(payload).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: `Failed to search native companion files: ${cause.detail}`,
+            cause,
+          }),
+      ),
+    );
+
+    return HttpServerResponse.jsonUnsafe(
+      {
+        results: result.entries.map((entry, index) => ({
+          root: payload.cwd,
+          path: entry.path,
+          matchType: entry.kind,
+          fileName: entry.path.split("/").pop() ?? entry.path,
+          score: Math.max(result.entries.length - index, 1),
+          indices: null,
+        })),
+        truncated: result.truncated,
+      },
+      { status: 200 },
+    );
+  }).pipe(
+    Effect.catchTag("AuthError", respondToAuthError),
+    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+  ),
+);
+
+export const companionNativeSkillsRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/skills/list",
+  Effect.gen(function* () {
+    yield* authenticateSession;
+    const providerRegistry = yield* ProviderRegistry;
+    const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeSkillsRequest).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: "Invalid native companion skills payload.",
+            cause,
+          }),
+      ),
+    );
+
+    const providers = yield* (
+      payload.forceReload === true
+        ? providerRegistry.refresh("codex")
+        : providerRegistry.getProviders
+    ).pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: "Failed to load native companion skills.",
+            cause,
+          }),
+      ),
+    );
+
+    const codexSkills: ReadonlyArray<ServerProviderSkill> =
+      providers.find((provider) => provider.provider === "codex")?.skills ?? [];
+
+    return HttpServerResponse.jsonUnsafe(
+      {
+        cwd: payload.cwd,
+        skills: codexSkills,
+      },
+      { status: 200 },
+    );
   }).pipe(
     Effect.catchTag("AuthError", respondToAuthError),
     Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),

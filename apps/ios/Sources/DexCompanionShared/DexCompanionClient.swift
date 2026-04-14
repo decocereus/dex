@@ -128,6 +128,44 @@ struct DexNativePendingUserInput: Codable, Equatable {
     let questions: [DexNativeUserInputQuestion]
 }
 
+private struct DexNativeFileSearchRequest: Encodable {
+    let cwd: String
+    let query: String
+    let limit: Int
+}
+
+private struct DexNativeFileSearchResponse: Decodable {
+    let results: [DexNativeFileSearchResult]
+}
+
+private struct DexNativeFileSearchResult: Decodable {
+    let root: String
+    let path: String
+    let matchType: String
+    let fileName: String
+    let score: UInt32
+    let indices: [UInt32]?
+}
+
+private struct DexNativeSkillsRequest: Encodable {
+    let cwd: String
+    let forceReload: Bool
+}
+
+private struct DexNativeSkillsResponse: Decodable {
+    let skills: [DexNativeSkillRecord]
+}
+
+private struct DexNativeSkillRecord: Decodable {
+    let name: String
+    let description: String?
+    let path: String
+    let scope: String?
+    let enabled: Bool
+    let displayName: String?
+    let shortDescription: String?
+}
+
 struct DexNativeOrchestrationMessage: Codable, Equatable {
     let id: String
     let role: String
@@ -303,6 +341,62 @@ struct DexCompanionClient {
         )
     }
 
+    func searchNativeFiles(
+        cwd: String,
+        query: String,
+        limit: Int = 50
+    ) async throws -> [FileSearchResult] {
+        let response: DexNativeFileSearchResponse = try await request(
+            path: "api/companion/native/files/search",
+            method: "POST",
+            bodyData: try JSONEncoder().encode(
+                DexNativeFileSearchRequest(cwd: cwd, query: query, limit: limit)
+            )
+        )
+        return response.results.map { result in
+            FileSearchResult(
+                root: result.root,
+                path: result.path,
+                matchType: result.matchType == "directory" ? .directory : .file,
+                fileName: result.fileName,
+                score: result.score,
+                indices: result.indices
+            )
+        }
+    }
+
+    func listNativeSkills(
+        cwd: String,
+        forceReload: Bool
+    ) async throws -> [SkillMetadata] {
+        let response: DexNativeSkillsResponse = try await request(
+            path: "api/companion/native/skills/list",
+            method: "POST",
+            bodyData: try JSONEncoder().encode(
+                DexNativeSkillsRequest(cwd: cwd, forceReload: forceReload)
+            )
+        )
+        return response.skills.map { skill in
+            SkillMetadata(
+                name: skill.name,
+                description: skill.description ?? "",
+                shortDescription: skill.shortDescription,
+                interface: SkillInterface(
+                    displayName: skill.displayName,
+                    shortDescription: skill.shortDescription,
+                    iconSmall: nil,
+                    iconLarge: nil,
+                    brandColor: nil,
+                    defaultPrompt: nil
+                ),
+                dependencies: nil,
+                path: AbsolutePath(value: skill.path),
+                scope: dexSkillScope(from: skill.scope),
+                enabled: skill.enabled
+            )
+        }
+    }
+
     func streamNativeThreadSnapshots(
         threadId: String,
         onSnapshot: @escaping @Sendable (DexNativeThreadSnapshot) async -> Void
@@ -390,5 +484,18 @@ struct DexCompanionClient {
             throw DexCompanionClientError.invalidResponse
         }
         return decoded
+    }
+
+    private func dexSkillScope(from value: String?) -> SkillScope {
+        switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "repo":
+            return .repo
+        case "system":
+            return .system
+        case "admin":
+            return .admin
+        default:
+            return .user
+        }
     }
 }

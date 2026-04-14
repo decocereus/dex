@@ -72,6 +72,8 @@ import {
 } from "./serverRuntimeState";
 import {
   companionDispatchRouteLayer,
+  companionNativeFileSearchRouteLayer,
+  companionNativeSkillsRouteLayer,
   companionNativeThreadArchiveRouteLayer,
   companionNativeThreadConfigureRouteLayer,
   companionNativeThreadCreateRouteLayer,
@@ -247,6 +249,8 @@ export const makeRoutesLayer = Layer.mergeAll(
   authWebSocketTokenRouteLayer,
   attachmentsRouteLayer,
   companionDispatchRouteLayer,
+  companionNativeFileSearchRouteLayer,
+  companionNativeSkillsRouteLayer,
   companionNativeThreadArchiveRouteLayer,
   companionNativeThreadConfigureRouteLayer,
   companionNativeThreadCreateRouteLayer,

@@ -102,6 +102,10 @@ import {
   type ServerEnvironmentShape,
 } from "./environment/Services/ServerEnvironment.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
+import {
+  WorkspaceEntries,
+  type WorkspaceEntriesShape,
+} from "./workspace/Services/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
@@ -310,6 +314,7 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    workspaceEntries?: Partial<WorkspaceEntriesShape>;
   };
 }) =>
   Effect.gen(function* () {
@@ -497,6 +502,13 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provideMerge(authTestLayer),
       Layer.provide(workspaceAndProjectServicesLayer),
+      Layer.provide(
+        Layer.mock(WorkspaceEntries)({
+          search: () => Effect.succeed({ entries: [], truncated: false }),
+          invalidate: () => Effect.void,
+          ...options?.layers?.workspaceEntries,
+        }),
+      ),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provide(layerConfig),
     );
@@ -1496,6 +1508,227 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(body.summary.model, "gpt-5.4");
       assert.equal(body.summary.runtimeMode, "approval-required");
       assert.equal(body.summary.interactionMode, "plan");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("allows paired companion clients to search native companion files", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const searchRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "dex-native-search-",
+      });
+      const conversationDir = path.join(searchRoot, "apps/ios/Sources/Litter/Views");
+      yield* fileSystem.makeDirectory(conversationDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(conversationDir, "ConversationView.swift"),
+        "struct ConversationView {}",
+      );
+      yield* fileSystem.writeFileString(
+        path.join(conversationDir, "ConversationComposerView.swift"),
+        "struct ConversationComposerView {}",
+      );
+
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const searchUrl = yield* getHttpServerUrl("/api/companion/native/files/search");
+      const response = yield* Effect.promise(() =>
+        fetch(searchUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            cwd: searchRoot,
+            query: "ConversationView",
+            limit: 20,
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly results: ReadonlyArray<{
+          readonly path: string;
+          readonly matchType: string;
+          readonly fileName: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.results[0]?.path, "apps/ios/Sources/Litter/Views/ConversationView.swift");
+      assert.equal(body.results[0]?.matchType, "file");
+      assert.equal(body.results[0]?.fileName, "ConversationView.swift");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("allows paired companion clients to list native companion skills", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          providerRegistry: {
+            getProviders: Effect.succeed([
+              {
+                provider: "codex" as const,
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                status: "ready" as const,
+                auth: { status: "authenticated" as const },
+                checkedAt: new Date().toISOString(),
+                models: [],
+                slashCommands: [],
+                skills: [
+                  {
+                    name: "gh-fix-ci",
+                    description: "Debug failing CI checks",
+                    path: "/Users/test/.codex/skills/gh-fix-ci/SKILL.md",
+                    scope: "user",
+                    enabled: true,
+                    displayName: "Fix CI",
+                    shortDescription: "Investigate broken GitHub Actions runs",
+                  },
+                ],
+              },
+              {
+                provider: "claudeAgent" as const,
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                status: "ready" as const,
+                auth: { status: "authenticated" as const },
+                checkedAt: new Date().toISOString(),
+                models: [],
+                slashCommands: [],
+                skills: [],
+              },
+            ]),
+            refresh: () =>
+              Effect.succeed([
+                {
+                  provider: "codex" as const,
+                  enabled: true,
+                  installed: true,
+                  version: "1.0.0",
+                  status: "ready" as const,
+                  auth: { status: "authenticated" as const },
+                  checkedAt: new Date().toISOString(),
+                  models: [],
+                  slashCommands: [],
+                  skills: [
+                    {
+                      name: "gh-fix-ci",
+                      description: "Debug failing CI checks",
+                      path: "/Users/test/.codex/skills/gh-fix-ci/SKILL.md",
+                      scope: "user",
+                      enabled: true,
+                      displayName: "Fix CI",
+                      shortDescription: "Investigate broken GitHub Actions runs",
+                    },
+                  ],
+                },
+                {
+                  provider: "claudeAgent" as const,
+                  enabled: true,
+                  installed: true,
+                  version: "1.0.0",
+                  status: "ready" as const,
+                  auth: { status: "authenticated" as const },
+                  checkedAt: new Date().toISOString(),
+                  models: [],
+                  slashCommands: [],
+                  skills: [],
+                },
+              ]),
+          },
+        },
+      });
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const skillsUrl = yield* getHttpServerUrl("/api/companion/native/skills/list");
+      const response = yield* Effect.promise(() =>
+        fetch(skillsUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            cwd: "/Users/amartyasingh/Documents/projects/dex",
+            forceReload: true,
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly skills: ReadonlyArray<{
+          readonly name: string;
+          readonly displayName: string;
+          readonly shortDescription: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.skills[0]?.name, "gh-fix-ci");
+      assert.equal(body.skills[0]?.displayName, "Fix CI");
+      assert.equal(body.skills[0]?.shortDescription, "Investigate broken GitHub Actions runs");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
