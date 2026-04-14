@@ -23,7 +23,6 @@ struct DiscoveryView: View {
     @State private var renameTarget: DiscoveredServer?
     @State private var renameText = ""
     @State private var showQRPairingSheet = false
-    @State private var activeDexCompanionSession: DexCompanionBrowserSession?
     @State private var savedDexCompanionSessions: [DexCompanionSavedSession] =
         DexCompanionSessionStore.load()
     @Environment(AppState.self) private var appState
@@ -82,21 +81,44 @@ struct DiscoveryView: View {
             let session = try await DexCompanionPairingClient().redeem(payload)
             DexCompanionSessionStore.upsert(from: session)
             savedDexCompanionSessions = DexCompanionSessionStore.load()
-            activeDexCompanionSession = session
         } catch {
             connectError = error.localizedDescription
         }
     }
 
     @MainActor
-    private func openSavedDexCompanion(_ savedSession: DexCompanionSavedSession) {
+    private func openSavedDexCompanion(_ savedSession: DexCompanionSavedSession) async {
         guard let session = savedSession.makeBrowserSession() else {
             DexCompanionSessionStore.remove(environmentId: savedSession.environmentId)
             savedDexCompanionSessions = DexCompanionSessionStore.load()
             connectError = "This Mac needs to be paired again."
             return
         }
-        activeDexCompanionSession = session
+        let client = DexCompanionClient(
+            httpBaseUrl: session.httpBaseUrl,
+            bearerToken: session.bearerToken
+        )
+        guard let shellSnapshot = try? await client.fetchNativeShellSnapshot(),
+              let project = shellSnapshot.projects.first else {
+            connectError = "This Mac has no available projects yet."
+            return
+        }
+        let pairedServer = DiscoveredServer(
+            id: DexCompanionRouting.serverId(
+                for: savedSession.environmentId,
+                projectId: project.id
+            ),
+            name: project.title,
+            hostname: URL(string: session.httpBaseUrl)?.host ?? "dex",
+            port: UInt16(URL(string: session.httpBaseUrl)?.port ?? 443),
+            codexPorts: [],
+            sshPort: nil,
+            source: .manual,
+            hasCodexServer: true,
+            preferredConnectionMode: .directCodex,
+            metadata: [:]
+        )
+        onServerSelected?(pairedServer)
     }
 
     var body: some View {
@@ -136,9 +158,6 @@ struct DiscoveryView: View {
                     },
                     onClose: { showQRPairingSheet = false }
                 )
-            }
-            .sheet(item: $activeDexCompanionSession) { session in
-                DexCompanionWebScreen(session: session)
             }
             .onChange(of: showManualEntry) { _, isPresented in
                 guard !isPresented, let pendingSSHServer else { return }
@@ -452,7 +471,7 @@ struct DiscoveryView: View {
             } else {
                 ForEach(savedDexCompanionSessions) { savedSession in
                     Button {
-                        openSavedDexCompanion(savedSession)
+                        Task { await openSavedDexCompanion(savedSession) }
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "desktopcomputer")

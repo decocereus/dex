@@ -345,8 +345,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $bindableAppState.showServerPicker) {
             NavigationStack {
-                DiscoveryView(onServerSelected: { _ in
+                DiscoveryView(onServerSelected: { server in
                     appState.showServerPicker = false
+                    appState.pendingServerNavigation = server.id
                 })
             }
             .environment(appState)
@@ -468,7 +469,6 @@ private struct HomeNavigationView: View {
     private enum HomeNavigationRoute: Hashable {
         case sessions(serverId: String, title: String)
         case conversation(ThreadKey)
-        case dexCompanion(DexCompanionBrowserSession)
         case realtimeVoice(ThreadKey)
         case conversationInfo(ThreadKey)
         case wallpaperSelection(ThreadKey)
@@ -573,8 +573,6 @@ private struct HomeNavigationView: View {
                         onOpenConversation: { replaceTopConversation(with: $0) },
                         onInfo: { navigationPath.append(.conversationInfo(threadKey)) }
                     )
-                case let .dexCompanion(session):
-                    DexCompanionWebScreen(session: session)
                 case let .replayRecording(recordingUrl):
                     ReplayDestinationScreen(
                         recordingUrl: recordingUrl,
@@ -678,6 +676,12 @@ private struct HomeNavigationView: View {
             if let newKey {
                 appState.pendingThreadNavigation = nil
                 replaceTopConversation(with: newKey)
+            }
+        }
+        .onChange(of: appState.pendingServerNavigation) { _, serverId in
+            if let serverId {
+                appState.pendingServerNavigation = nil
+                showSessions(for: serverId)
             }
         }
         .sheet(item: $directoryPickerSheet) { _ in
@@ -979,13 +983,6 @@ private struct HomeNavigationView: View {
         appState.showModelSelector = false
         guard navigationPath.last != .conversation(key) else { return }
         navigationPath.append(.conversation(key))
-    }
-
-    private func openDexCompanion(_ session: DexCompanionBrowserSession) {
-        hasSeededInitialConversationRoute = true
-        appState.showModelSelector = false
-        guard navigationPath.last != .dexCompanion(session) else { return }
-        navigationPath.append(.dexCompanion(session))
     }
 
     private func openRealtimeVoice(_ key: ThreadKey) {

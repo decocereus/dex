@@ -19,7 +19,6 @@ struct SessionsScreen: View {
     @State private var debouncedSessionSearchQuery = ""
     @State private var isForkingActiveThread = false
     @State private var sessionActionErrorMessage: String?
-    @State private var activeDexCompanionSession: DexCompanionBrowserSession?
     @State private var renamingThreadKey: ThreadKey?
     @State private var renameCurrentTitle = ""
     @State private var renameDraft = ""
@@ -102,9 +101,6 @@ struct SessionsScreen: View {
                         }
                     )
                 }
-            }
-            .sheet(item: $activeDexCompanionSession) { session in
-                DexCompanionWebScreen(session: session)
             }
     }
 
