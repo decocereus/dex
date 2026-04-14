@@ -1,11 +1,13 @@
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import { ProjectId, ThreadId } from "@dex/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
   clearThreadUi,
   markThreadUnread,
   reorderProjects,
+  setProjectHidden,
   setProjectExpanded,
+  setProjectsExpanded,
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
@@ -15,6 +17,7 @@ import {
 function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
+    projectHiddenById: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -297,6 +300,31 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectExpandedById[project1]).toBe(false);
     expect(next.projectOrder).toEqual([project1]);
+  });
+
+  it("setProjectsExpanded updates multiple projects at once", () => {
+    const project1 = ProjectId.make("project-1");
+    const project2 = ProjectId.make("project-2");
+    const initialState = makeUiState({
+      projectExpandedById: {
+        [project1]: true,
+        [project2]: true,
+      },
+    });
+
+    const next = setProjectsExpanded(initialState, [project1, project2], false);
+
+    expect(next.projectExpandedById[project1]).toBe(false);
+    expect(next.projectExpandedById[project2]).toBe(false);
+  });
+
+  it("setProjectHidden toggles UI-hidden project state", () => {
+    const project1 = ProjectId.make("project-1");
+    const hidden = setProjectHidden(makeUiState(), project1, true);
+    expect(hidden.projectHiddenById[project1]).toBe(true);
+
+    const restored = setProjectHidden(hidden, project1, false);
+    expect(restored.projectHiddenById[project1]).toBeUndefined();
   });
 
   it("clearThreadUi removes visit state for deleted threads", () => {

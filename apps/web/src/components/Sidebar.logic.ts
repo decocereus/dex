@@ -1,5 +1,6 @@
 import * as React from "react";
-import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+import { scopedThreadKey, scopeThreadRef } from "@dex/client-runtime";
+import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@dex/contracts/settings";
 import {
   getThreadSortTimestamp,
   sortThreads,
@@ -250,6 +251,29 @@ export function getVisibleSidebarThreadIds<TThreadId>(
   return renderedProjects.flatMap((renderedProject) =>
     renderedProject.shouldShowThreadPanel === false ? [] : renderedProject.renderedThreadIds,
   );
+}
+
+export function orderThreadsForProjectCascadeDelete<
+  TThread extends Pick<Thread, "id" | "environmentId">,
+>(threads: readonly TThread[], activeRouteThreadKey: string | null): TThread[] {
+  const seen = new Set<string>();
+  const active: TThread[] = [];
+  const rest: TThread[] = [];
+
+  for (const thread of threads) {
+    const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    if (seen.has(threadKey)) {
+      continue;
+    }
+    seen.add(threadKey);
+    if (activeRouteThreadKey !== null && threadKey === activeRouteThreadKey) {
+      active.push(thread);
+    } else {
+      rest.push(thread);
+    }
+  }
+
+  return [...active, ...rest];
 }
 
 export function getSidebarThreadIdsToPrewarm<TThreadId>(

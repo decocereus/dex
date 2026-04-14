@@ -237,3 +237,22 @@ export const ServerProviderUpdatedPayload = Schema.Struct({
   providers: ServerProviders,
 });
 export type ServerProviderUpdatedPayload = typeof ServerProviderUpdatedPayload.Type;
+
+export const ServerImportCodexThreadsResult = Schema.Struct({
+  discoveredThreadCount: NonNegativeInt,
+  processedThreadCount: NonNegativeInt,
+  createdProjectCount: NonNegativeInt,
+  createdThreadCount: NonNegativeInt,
+  processedMessageCount: NonNegativeInt,
+  processedActivityCount: NonNegativeInt,
+  skippedThreadCount: NonNegativeInt,
+});
+export type ServerImportCodexThreadsResult = typeof ServerImportCodexThreadsResult.Type;
+
+export class ServerImportCodexThreadsError extends Schema.TaggedErrorClass<ServerImportCodexThreadsError>()(
+  "ServerImportCodexThreadsError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}

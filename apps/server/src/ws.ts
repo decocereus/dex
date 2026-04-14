@@ -21,7 +21,8 @@ import {
   type TerminalEvent,
   WS_METHODS,
   WsRpcGroup,
-} from "@t3tools/contracts";
+  ServerImportCodexThreadsError,
+} from "@dex/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -42,6 +43,7 @@ import {
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { ProviderSessionDirectory } from "./provider/Services/ProviderSessionDirectory";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
@@ -62,6 +64,7 @@ import {
   type SessionCredentialChange,
 } from "./auth/Services/SessionCredentialService";
 import { respondToAuthError } from "./auth/http";
+import { importCodexThreads } from "./codexThreadImport";
 
 function isThreadDetailEvent(event: OrchestrationEvent): event is Extract<
   OrchestrationEvent,
@@ -138,6 +141,7 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
       const gitStatusBroadcaster = yield* GitStatusBroadcaster;
       const terminalManager = yield* TerminalManager;
       const providerRegistry = yield* ProviderRegistry;
+      const providerSessionDirectory = yield* ProviderSessionDirectory;
       const config = yield* ServerConfig;
       const lifecycleEvents = yield* ServerLifecycleEvents;
       const serverSettings = yield* ServerSettingsService;
@@ -713,6 +717,57 @@ const makeWsRpcLayer = (currentSessionId: AuthSessionId) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,
             providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.serverImportCodexThreads]: (_input) =>
+          observeRpcEffect(
+            WS_METHODS.serverImportCodexThreads,
+            Effect.gen(function* () {
+              const settings = yield* serverSettings.getSettings.pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ServerImportCodexThreadsError({
+                      message: "Failed to load server settings before importing Codex threads.",
+                      cause,
+                    }),
+                ),
+              );
+              const readModel = yield* orchestrationEngine.getReadModel();
+              return yield* importCodexThreads({
+                binaryPath: settings.providers.codex.binaryPath,
+                ...(settings.providers.codex.homePath
+                  ? { homePath: settings.providers.codex.homePath }
+                  : {}),
+                readModel,
+                dispatchCommand: (command) =>
+                  orchestrationEngine
+                    .dispatch(command)
+                    .pipe(
+                      Effect.mapError((cause) =>
+                        cause instanceof Error ? cause : new Error(String(cause)),
+                      ),
+                    ),
+                upsertProviderBinding: (binding) =>
+                  providerSessionDirectory
+                    .upsert(binding)
+                    .pipe(
+                      Effect.mapError((cause) =>
+                        cause instanceof Error ? cause : new Error(String(cause)),
+                      ),
+                    ),
+              }).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ServerImportCodexThreadsError({
+                      message:
+                        cause instanceof Error
+                          ? cause.message
+                          : "Failed to import persisted Codex threads.",
+                      cause,
+                    }),
+                ),
+              );
+            }),
             { "rpc.aggregate": "server" },
           ),
         [WS_METHODS.serverUpsertKeybinding]: (rule) =>
