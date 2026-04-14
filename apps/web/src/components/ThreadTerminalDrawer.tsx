@@ -5,7 +5,7 @@ import {
   type TerminalEvent,
   type TerminalSessionSnapshot,
   type ThreadId,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   type PointerEvent as ReactPointerEvent,

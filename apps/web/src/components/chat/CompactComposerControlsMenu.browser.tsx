@@ -1,10 +1,5 @@
-import {
-  DEFAULT_MODEL_BY_PROVIDER,
-  EnvironmentId,
-  ModelSelection,
-  ThreadId,
-} from "@t3tools/contracts";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+import { DEFAULT_MODEL_BY_PROVIDER, EnvironmentId, ModelSelection, ThreadId } from "@dex/contracts";
+import { scopedThreadKey, scopeThreadRef } from "@dex/client-runtime";
 import "../../index.css";
 
 import { page } from "vitest/browser";

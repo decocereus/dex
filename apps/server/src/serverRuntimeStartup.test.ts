@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_BY_PROVIDER } from "@t3tools/contracts";
+import { DEFAULT_MODEL_BY_PROVIDER } from "@dex/contracts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Option, Ref } from "effect";
 

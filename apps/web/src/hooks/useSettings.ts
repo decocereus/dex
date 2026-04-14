@@ -10,16 +10,16 @@
  * store.
  */
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { ServerSettings, ServerSettingsPatch } from "@t3tools/contracts";
+import { ServerSettings, ServerSettingsPatch } from "@dex/contracts";
 import {
   type ClientSettings,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
   UnifiedSettings,
-} from "@t3tools/contracts/settings";
+} from "@dex/contracts/settings";
 import { ensureLocalApi } from "~/localApi";
 import { Struct } from "effect";
-import { deepMerge } from "@t3tools/shared/Struct";
+import { deepMerge } from "@dex/shared/Struct";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
 
 const CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE = "[CLIENT_SETTINGS]";

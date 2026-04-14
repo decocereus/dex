@@ -622,20 +622,12 @@ impl TryFrom<AppStartRealtimeSessionRequest> for upstream::ThreadRealtimeStartPa
     type Error = RpcClientError;
 
     fn try_from(value: AppStartRealtimeSessionRequest) -> Result<Self, Self::Error> {
+        let _ = value.client_controlled_handoff;
+        let _ = value.dynamic_tools;
         Ok(Self {
             thread_id: value.thread_id,
             prompt: value.prompt,
             session_id: value.session_id,
-            client_controlled_handoff: value.client_controlled_handoff,
-            dynamic_tools: value
-                .dynamic_tools
-                .map(|tools| {
-                    tools
-                        .into_iter()
-                        .map(dynamic_tool_spec_into_upstream)
-                        .collect::<Result<Vec<_>, _>>()
-                })
-                .transpose()?,
         })
     }
 }
@@ -699,27 +691,10 @@ pub struct AppResolveRealtimeHandoffRequest {
     pub tool_call_output: String,
 }
 
-impl From<AppResolveRealtimeHandoffRequest> for upstream::ThreadRealtimeResolveHandoffParams {
-    fn from(value: AppResolveRealtimeHandoffRequest) -> Self {
-        Self {
-            thread_id: value.thread_id,
-            tool_call_output: value.tool_call_output,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, uniffi::Record)]
 #[serde(rename_all = "camelCase")]
 pub struct AppFinalizeRealtimeHandoffRequest {
     pub thread_id: String,
-}
-
-impl From<AppFinalizeRealtimeHandoffRequest> for upstream::ThreadRealtimeFinalizeHandoffParams {
-    fn from(value: AppFinalizeRealtimeHandoffRequest) -> Self {
-        Self {
-            thread_id: value.thread_id,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -281,15 +281,11 @@ impl AppClient {
         server_id: String,
         params: types::AppResolveRealtimeHandoffRequest,
     ) -> Result<(), ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            let _: upstream::ThreadRealtimeResolveHandoffResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, ThreadRealtimeResolveHandoff, params.into()),
-            )
-            .await?;
-            Ok(())
-        })
+        let _ = (server_id, params);
+        Err(ClientError::Rpc(
+            "Realtime handoff resolve is not supported by the current upstream app-server protocol."
+                .to_string(),
+        ))
     }
 
     pub async fn finalize_realtime_handoff(
@@ -297,15 +293,11 @@ impl AppClient {
         server_id: String,
         params: types::AppFinalizeRealtimeHandoffRequest,
     ) -> Result<(), ClientError> {
-        blocking_async!(self.rt, self.inner, |c| {
-            let _: upstream::ThreadRealtimeFinalizeHandoffResponse = rpc(
-                c.as_ref(),
-                &server_id,
-                req!(server_id, ThreadRealtimeFinalizeHandoff, params.into()),
-            )
-            .await?;
-            Ok(())
-        })
+        let _ = (server_id, params);
+        Err(ClientError::Rpc(
+            "Realtime handoff finalize is not supported by the current upstream app-server protocol."
+                .to_string(),
+        ))
     }
 
     // ── Review ───────────────────────────────────────────────────────────

@@ -7,7 +7,7 @@ import type {
   ServerProviderAuth,
   ServerProviderSkill,
   ServerProviderState,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import {
   Cache,
   Duration,
@@ -48,7 +48,7 @@ import {
 import { probeCodexDiscovery } from "../codexAppServer";
 import { CodexProvider } from "../Services/CodexProvider";
 import { ServerSettingsService } from "../../serverSettings";
-import { ServerSettingsError } from "@t3tools/contracts";
+import { ServerSettingsError } from "@dex/contracts";
 
 const DEFAULT_CODEX_MODEL_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [
@@ -372,7 +372,7 @@ export const checkCodexProviderStatus = Effect.fn("checkCodexProviderStatus")(fu
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Codex is disabled in T3 Code settings.",
+        message: "Codex is disabled in dex settings.",
       },
     });
   }

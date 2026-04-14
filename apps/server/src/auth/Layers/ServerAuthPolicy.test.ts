@@ -20,7 +20,7 @@ const makeServerAuthPolicyLayer = (overrides?: Partial<ServerConfigShape>) =>
           } satisfies ServerConfigShape;
         }),
       ).pipe(
-        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-auth-policy-test-" })),
+        Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "dex-auth-policy-test-" })),
       ),
     ),
   );

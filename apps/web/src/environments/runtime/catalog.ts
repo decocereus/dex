@@ -1,11 +1,11 @@
-import { getKnownEnvironmentHttpBaseUrl } from "@t3tools/client-runtime";
+import { getKnownEnvironmentHttpBaseUrl } from "@dex/client-runtime";
 import type {
   AuthSessionRole,
   EnvironmentId,
   ExecutionEnvironmentDescriptor,
   PersistedSavedEnvironmentRecord,
   ServerConfig,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { create } from "zustand";
 
 import { ensureLocalApi } from "../../localApi";

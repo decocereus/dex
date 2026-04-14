@@ -170,9 +170,13 @@ const ProviderLayerLive = Layer.unwrap(
       Layer.provide(claudeAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
-    return makeProviderServiceLive(
-      canonicalEventLogger ? { canonicalEventLogger } : undefined,
-    ).pipe(Layer.provide(adapterRegistryLayer), Layer.provide(providerSessionDirectoryLayer));
+    return Layer.mergeAll(
+      makeProviderServiceLive(canonicalEventLogger ? { canonicalEventLogger } : undefined).pipe(
+        Layer.provide(adapterRegistryLayer),
+        Layer.provide(providerSessionDirectoryLayer),
+      ),
+      providerSessionDirectoryLayer,
+    );
   }),
 );
 

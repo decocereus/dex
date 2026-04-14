@@ -3,7 +3,7 @@ import type {
   AuthClientSession,
   AuthSessionId,
   ServerAuthSessionMethod,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { Data, DateTime, Duration, Context } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -84,4 +84,4 @@ export interface SessionCredentialServiceShape {
 export class SessionCredentialService extends Context.Service<
   SessionCredentialService,
   SessionCredentialServiceShape
->()("t3/auth/Services/SessionCredentialService") {}
+>()("dex/auth/Services/SessionCredentialService") {}

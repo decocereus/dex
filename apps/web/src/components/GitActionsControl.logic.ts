@@ -1,9 +1,5 @@
-import type {
-  GitRunStackedActionResult,
-  GitStackedAction,
-  GitStatusResult,
-} from "@t3tools/contracts";
-import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
+import type { GitRunStackedActionResult, GitStackedAction, GitStatusResult } from "@dex/contracts";
+import { isTemporaryWorktreeBranch } from "@dex/shared/git";
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
@@ -370,4 +366,4 @@ export function resolveLiveThreadBranchUpdate(input: {
 }
 
 // Re-export from shared for backwards compatibility in this module's exports
-export { resolveAutoFeatureBranchName } from "@t3tools/shared/git";
+export { resolveAutoFeatureBranchName } from "@dex/shared/git";

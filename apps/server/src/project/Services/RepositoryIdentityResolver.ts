@@ -1,4 +1,4 @@
-import type { RepositoryIdentity } from "@t3tools/contracts";
+import type { RepositoryIdentity } from "@dex/contracts";
 import { Context } from "effect";
 import type { Effect } from "effect";
 
@@ -9,4 +9,4 @@ export interface RepositoryIdentityResolverShape {
 export class RepositoryIdentityResolver extends Context.Service<
   RepositoryIdentityResolver,
   RepositoryIdentityResolverShape
->()("t3/project/Services/RepositoryIdentityResolver") {}
+>()("dex/project/Services/RepositoryIdentityResolver") {}

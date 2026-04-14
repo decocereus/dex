@@ -9,8 +9,8 @@ import {
   EnvironmentId,
   type ServerProvider,
   ThreadId,
-} from "@t3tools/contracts";
-import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime";
+} from "@dex/contracts";
+import { scopedThreadKey, scopeThreadRef } from "@dex/client-runtime";
 import { page } from "vitest/browser";
 import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,7 +24,7 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../../composerDraftStore";
-import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_CLIENT_SETTINGS } from "@dex/contracts/settings";
 
 // ── Claude TraitsPicker tests ─────────────────────────────────────────
 

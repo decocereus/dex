@@ -1,11 +1,11 @@
-# T3 Code
+# dex
 
-T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
+dex is a minimal web GUI for coding agents (currently Codex and Claude, more coming soon).
 
 ## Installation
 
 > [!WARNING]
-> T3 Code currently supports Codex and Claude.
+> dex currently supports Codex and Claude.
 > Install and authenticate at least one provider before use:
 >
 > - Codex: install [Codex CLI](https://github.com/openai/codex) and run `codex login`
@@ -14,12 +14,12 @@ T3 Code is a minimal web GUI for coding agents (currently Codex and Claude, more
 ### Run without installing
 
 ```bash
-npx t3
+npx dex
 ```
 
 ### Desktop app
 
-Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/t3code/releases), or from your favorite package registry:
+Install the latest version of the desktop app from [GitHub Releases](https://github.com/pingdotgg/dex/releases), or from your favorite package registry:
 
 #### Windows (`winget`)
 
@@ -30,13 +30,13 @@ winget install T3Tools.T3Code
 #### macOS (Homebrew)
 
 ```bash
-brew install --cask t3-code
+brew install --cask dex
 ```
 
 #### Arch Linux (AUR)
 
 ```bash
-yay -S t3code-bin
+yay -S dex-bin
 ```
 
 ## Some notes

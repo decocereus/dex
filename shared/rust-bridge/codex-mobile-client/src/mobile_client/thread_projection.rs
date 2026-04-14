@@ -811,8 +811,8 @@ pub(super) fn upsert_thread_snapshot_from_app_server_read_response(
         response.thread,
         None,
         None,
-        response.approval_policy.map(Into::into),
-        response.sandbox.map(Into::into),
+        None,
+        None,
     )
     .map_err(RpcError::Deserialization)?;
     if let Some(existing) = existing.as_ref() {

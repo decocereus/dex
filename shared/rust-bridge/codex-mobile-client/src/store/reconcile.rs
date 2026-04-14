@@ -231,8 +231,8 @@ impl MobileClient {
             response.thread.clone(),
             None,
             None,
-            response.approval_policy.clone().map(Into::into),
-            response.sandbox.clone().map(Into::into),
+            None,
+            None,
         )
         .map_err(|e| e.to_string())?;
         let key = snapshot.key.clone();

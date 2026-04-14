@@ -24,11 +24,11 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           ConfigProvider.layer(
             ConfigProvider.fromEnv({
               env: {
-                T3CODE_DESKTOP_SKIP_BUILD: "true",
-                T3CODE_DESKTOP_KEEP_STAGE: "true",
-                T3CODE_DESKTOP_SIGNED: "true",
-                T3CODE_DESKTOP_VERBOSE: "true",
-                T3CODE_DESKTOP_MOCK_UPDATES: "true",
+                DEX_DESKTOP_SKIP_BUILD: "true",
+                DEX_DESKTOP_KEEP_STAGE: "true",
+                DEX_DESKTOP_SIGNED: "true",
+                DEX_DESKTOP_VERBOSE: "true",
+                DEX_DESKTOP_MOCK_UPDATES: "true",
               },
             }),
           ),

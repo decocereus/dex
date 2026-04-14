@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
-import { EDITORS, OpenError, type EditorId } from "@t3tools/contracts";
+import { EDITORS, OpenError, type EditorId } from "@dex/contracts";
 import { Context, Effect, Layer } from "effect";
 
 // ==============================
@@ -255,7 +255,7 @@ export interface OpenShape {
 /**
  * Open - Service tag for browser/editor launch operations.
  */
-export class Open extends Context.Service<Open, OpenShape>()("t3/open") {}
+export class Open extends Context.Service<Open, OpenShape>()("dex/open") {}
 
 // ==============================
 // Implementations

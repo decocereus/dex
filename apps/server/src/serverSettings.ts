@@ -18,7 +18,7 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import {
   Cache,
   Deferred,
@@ -40,8 +40,8 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
-import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
-import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { type DeepPartial, deepMerge } from "@dex/shared/Struct";
+import { fromLenientJson } from "@dex/shared/schemaJson";
 
 export interface ServerSettingsShape {
   /** Start the settings runtime and attach file watching. */
@@ -65,7 +65,7 @@ export interface ServerSettingsShape {
 export class ServerSettingsService extends Context.Service<
   ServerSettingsService,
   ServerSettingsShape
->()("t3/serverSettings/ServerSettingsService") {
+>()("dex/serverSettings/ServerSettingsService") {
   static readonly layerTest = (overrides: DeepPartial<ServerSettings> = {}) =>
     Layer.effect(
       ServerSettingsService,

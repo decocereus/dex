@@ -80,6 +80,8 @@ import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
+import { ProviderSessionDirectory } from "./provider/Services/ProviderSessionDirectory.ts";
+import { ProviderSessionDirectoryPersistenceError } from "./provider/Errors.ts";
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
@@ -379,6 +381,21 @@ const buildAppUnderTest = (options?: {
           refresh: () => Effect.succeed([]),
           streamChanges: Stream.empty,
           ...options?.layers?.providerRegistry,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProviderSessionDirectory)({
+          upsert: () => Effect.void,
+          getProvider: () =>
+            Effect.fail(
+              new ProviderSessionDirectoryPersistenceError({
+                operation: "server.test.getProvider",
+                detail: "Provider binding not found in test harness.",
+              }),
+            ),
+          getBinding: () => Effect.succeed(Option.none()),
+          remove: () => Effect.void,
+          listThreadIds: () => Effect.succeed([]),
         }),
       ),
       Layer.provide(

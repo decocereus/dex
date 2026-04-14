@@ -1089,8 +1089,8 @@ impl MobileClient {
                     response.thread,
                     None,
                     None,
-                    response.approval_policy.map(Into::into),
-                    response.sandbox.map(Into::into),
+                    None,
+                    None,
                 )
                 .map_err(RpcError::Deserialization)?;
                 self.app_store.upsert_thread_snapshot(snapshot);
