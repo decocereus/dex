@@ -13,7 +13,7 @@ build/
 .logs/
 release/
 release-mock/
-.t3
+.dex
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
@@ -22,3 +22,24 @@ apps/web/src/components/__screenshots__
 __screenshots__/
 .tanstack
 squashfs-root/
+
+# Imported iOS / native workspace outputs
+.build-stamps/
+DerivedData/
+apps/ios/.swiftpm/
+apps/ios/Frameworks/
+apps/ios/GeneratedRust/
+apps/ios/fastlane/report.xml
+apps/ios/fastlane/screenshots/
+apps/ios/*.xcodeproj/xcuserdata/
+apps/ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+apps/ios/Litter.xcodeproj/xcuserdata/
+apps/ios/Litter.xcodeproj/project.xcworkspace/xcuserdata/
+shared/rust-bridge/target/
+shared/rust-bridge/generated/
+*.xcuserstate
+*.generated.rs
+*.generated.swift
+artifacts/
+.wrangler/
+.xcodebuildmcp/

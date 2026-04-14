@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import readline from "node:readline";
-import type { ServerProviderSkill } from "@t3tools/contracts";
+import type { ServerProviderSkill } from "@dex/contracts";
 import { readCodexAccountSnapshot, type CodexAccountSnapshot } from "./codexAccount";
 
 interface JsonRpcProbeResponse {
@@ -82,8 +82,8 @@ function parseCodexSkillsResult(result: unknown, cwd: string): ReadonlyArray<Ser
 export function buildCodexInitializeParams() {
   return {
     clientInfo: {
-      name: "t3code_desktop",
-      title: "T3 Code Desktop",
+      name: "dex_desktop",
+      title: "dex Desktop",
       version: "0.1.0",
     },
     capabilities: {

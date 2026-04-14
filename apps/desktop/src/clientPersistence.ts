@@ -1,7 +1,7 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
-import type { ClientSettings, PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
+import type { ClientSettings, PersistedSavedEnvironmentRecord } from "@dex/contracts";
 import { Predicate } from "effect";
 
 interface ClientSettingsDocument {

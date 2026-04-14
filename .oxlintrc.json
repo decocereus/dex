@@ -4,6 +4,7 @@
     "dist",
     "dist-electron",
     "node_modules",
+    "shared/third_party",
     "bun.lock",
     "*.tsbuildinfo",
     "**/routeTree.gen.ts"

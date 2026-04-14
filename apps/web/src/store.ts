@@ -20,8 +20,8 @@ import type {
   ScopedThreadRef,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
-import { resolveModelSlugForProvider } from "@t3tools/shared/model";
+} from "@dex/contracts";
+import { resolveModelSlugForProvider } from "@dex/shared/model";
 import { create } from "zustand";
 import {
   type ChatMessage,
@@ -285,6 +285,7 @@ function mapThreadShell(
     environmentId,
     projectId: thread.projectId,
     title: thread.title,
+    agentProvider: session?.provider ?? thread.modelSelection.provider,
     interactionMode: thread.interactionMode,
     session,
     createdAt: thread.createdAt,
@@ -386,6 +387,7 @@ function sidebarThreadSummariesEqual(
     left.id === right.id &&
     left.projectId === right.projectId &&
     left.title === right.title &&
+    left.agentProvider === right.agentProvider &&
     left.interactionMode === right.interactionMode &&
     threadSessionsEqual(left.session, right.session) &&
     left.createdAt === right.createdAt &&

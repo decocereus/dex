@@ -1,8 +1,4 @@
-import {
-  EnvironmentId,
-  type LocalApi,
-  type PersistedSavedEnvironmentRecord,
-} from "@t3tools/contracts";
+import { EnvironmentId, type LocalApi, type PersistedSavedEnvironmentRecord } from "@dex/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +8,10 @@ import {
   useSavedEnvironmentRuntimeStore,
   waitForSavedEnvironmentRegistryHydration,
 } from "./catalog";
+
+function throwUninitializedRegistryReadResolver(): never {
+  throw new Error("Registry read resolver was not initialized.");
+}
 
 describe("environment runtime catalog stores", () => {
   beforeEach(async () => {
@@ -95,9 +95,7 @@ describe("environment runtime catalog stores", () => {
   });
 
   it("does not let stale hydration overwrite records added while hydration is in flight", async () => {
-    let resolveRegistryRead: () => void = () => {
-      throw new Error("Registry read resolver was not initialized.");
-    };
+    let resolveRegistryRead: () => void = throwUninitializedRegistryReadResolver;
 
     vi.stubGlobal("window", {
       nativeApi: {

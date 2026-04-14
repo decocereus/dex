@@ -1,4 +1,4 @@
-import { EnvironmentId, type ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
+import { EnvironmentId, type ExecutionEnvironmentDescriptor } from "@dex/contracts";
 import { Effect, FileSystem, Layer, Path, Random } from "effect";
 
 import { ServerConfig } from "../../config.ts";

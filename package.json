@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/monorepo",
+  "name": "@dex/monorepo",
   "private": true,
   "workspaces": {
     "packages": [
@@ -28,22 +28,24 @@
     "dev": "node scripts/dev-runner.ts dev",
     "dev:server": "node scripts/dev-runner.ts dev:server",
     "dev:web": "node scripts/dev-runner.ts dev:web",
-    "dev:marketing": "turbo run dev --filter=@t3tools/marketing",
+    "dev:marketing": "turbo run dev --filter=@dex/marketing",
     "dev:desktop": "node scripts/dev-runner.ts dev:desktop",
-    "start": "turbo run start --filter=t3",
-    "start:desktop": "turbo run start --filter=@t3tools/desktop",
-    "start:marketing": "turbo run preview --filter=@t3tools/marketing",
+    "ios:companion": "make ios-dex-companion",
+    "ios:companion:device": "make ios-dex-companion-device",
+    "start": "turbo run start --filter=dex",
+    "start:desktop": "turbo run start --filter=@dex/desktop",
+    "start:marketing": "turbo run preview --filter=@dex/marketing",
     "start:mock-update-server": "bun run scripts/mock-update-server.ts",
     "build": "turbo run build",
-    "build:marketing": "turbo run build --filter=@t3tools/marketing",
-    "build:desktop": "turbo run build --filter=@t3tools/desktop --filter=t3",
+    "build:marketing": "turbo run build --filter=@dex/marketing",
+    "build:desktop": "turbo run build --filter=@dex/desktop --filter=dex",
     "typecheck": "turbo run typecheck",
     "lint": "oxlint --report-unused-disable-directives",
     "test": "turbo run test",
-    "test:desktop-smoke": "turbo run smoke-test --filter=@t3tools/desktop",
+    "test:desktop-smoke": "turbo run smoke-test --filter=@dex/desktop",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "build:contracts": "turbo run build --filter=@t3tools/contracts",
+    "build:contracts": "turbo run build --filter=@dex/contracts",
     "dist:desktop:artifact": "node scripts/build-desktop-artifact.ts",
     "dist:desktop:dmg": "node scripts/build-desktop-artifact.ts --platform mac --target dmg",
     "dist:desktop:dmg:arm64": "node scripts/build-desktop-artifact.ts --platform mac --target dmg --arch arm64",
@@ -52,7 +54,18 @@
     "dist:desktop:win": "node scripts/build-desktop-artifact.ts --platform win --target nsis --arch x64",
     "release:smoke": "node scripts/release-smoke.ts",
     "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist apps/*/dist-electron packages/*/dist .turbo apps/*/.turbo packages/*/.turbo",
-    "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
+    "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs",
+    "ios:help": "make help",
+    "ios:local-setup": "make ios-local-setup",
+    "ios:sim-fast": "make ios-sim-fast",
+    "ios:device-fast": "make ios-device-fast",
+    "ios:build": "make ios",
+    "ios:sim": "make ios-sim",
+    "ios:device": "make ios-device",
+    "ios:clean": "make clean-ios"
+  },
+  "dependencies": {
+    "@dex/monorepo": "."
   },
   "devDependencies": {
     "@types/node": "catalog:",
@@ -82,6 +95,7 @@
     ]
   },
   "trustedDependencies": [
+    "electron",
     "node-pty"
   ]
 }

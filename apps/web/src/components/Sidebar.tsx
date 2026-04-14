@@ -1,17 +1,21 @@
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
+  ChevronsUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
   FolderIcon,
   GitPullRequestIcon,
+  LoaderCircleIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
   SquarePenIcon,
   TerminalIcon,
   TriangleAlertIcon,
+  Undo2Icon,
 } from "lucide-react";
+import { ClaudeAI, OpenAI } from "./Icons";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { autoAnimate } from "@formkit/auto-animate";
 import React, { useCallback, useEffect, memo, useMemo, useRef, useState } from "react";
@@ -36,24 +40,22 @@ import {
   type DesktopUpdateState,
   type EnvironmentId,
   ProjectId,
+  type ServerImportCodexThreadsResult,
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadEnvMode,
   ThreadId,
   type GitStatusResult,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import {
   parseScopedThreadKey,
   scopedProjectKey,
   scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
-} from "@t3tools/client-runtime";
+} from "@dex/client-runtime";
 import { Link, useLocation, useNavigate, useParams, useRouter } from "@tanstack/react-router";
-import {
-  type SidebarProjectSortOrder,
-  type SidebarThreadSortOrder,
-} from "@t3tools/contracts/settings";
+import { type SidebarProjectSortOrder, type SidebarThreadSortOrder } from "@dex/contracts/settings";
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
 import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
@@ -115,6 +117,7 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSkeleton,
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
@@ -127,6 +130,7 @@ import {
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
   isContextMenuPointerDown,
+  orderThreadsForProjectCascadeDelete,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
@@ -639,6 +643,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </Tooltip>
           )}
           {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+          <ThreadAgentIcon thread={thread} />
           {renamingThreadKey === threadKey ? (
             <input
               ref={handleRenameInputRef}
@@ -966,6 +971,7 @@ interface SidebarProjectItemProps {
   suppressProjectClickForContextMenuRef: React.RefObject<boolean>;
   isManualProjectSorting: boolean;
   dragHandleProps: SortableProjectHandleProps | null;
+  setProjectHidden: (projectKey: string, hidden: boolean) => void;
 }
 
 const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjectItemProps) {
@@ -986,6 +992,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     suppressProjectClickForContextMenuRef,
     isManualProjectSorting,
     dragHandleProps,
+    setProjectHidden,
   } = props;
   const threadSortOrder = useSettings<SidebarThreadSortOrder>(
     (settings) => settings.sidebarThreadSortOrder,
@@ -1332,6 +1339,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         const clicked = await api.contextMenu.show(
           [
             { id: "copy-path", label: "Copy Project Path" },
+            { id: "hide", label: "Hide project" },
             { id: "delete", label: "Remove project", destructive: true },
           ],
           {
@@ -1343,37 +1351,61 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           copyPathToClipboard(project.cwd, { path: project.cwd });
           return;
         }
-        if (clicked !== "delete") return;
-
-        if (projectThreads.length > 0) {
-          toastManager.add({
-            type: "warning",
-            title: "Project is not empty",
-            description: "Delete all threads in this project before removing it.",
-          });
+        if (clicked === "hide") {
+          setProjectHidden(project.projectKey, true);
           return;
         }
+        if (clicked !== "delete") return;
 
-        const confirmed = await api.dialogs.confirm(`Remove project "${project.name}"?`);
+        const threadCount = projectThreads.length;
+        const confirmed = await api.dialogs.confirm(
+          threadCount > 0
+            ? [
+                `Remove project "${project.name}"?`,
+                "",
+                `This will delete ${threadCount} thread${threadCount === 1 ? "" : "s"} in this project from dex before removing the project.`,
+                "This will not delete anything from ~/.codex or your local files.",
+              ].join("\n")
+            : `Remove project "${project.name}"?`,
+        );
         if (!confirmed) return;
 
         try {
-          const projectDraftThread = getDraftThreadByProjectRef(
-            scopeProjectRef(project.environmentId, project.id),
+          const deletedThreadKeys = new Set(
+            projectThreads.map((thread) =>
+              scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+            ),
           );
-          if (projectDraftThread) {
-            clearComposerDraftForThread(projectDraftThread.draftId);
+          const orderedThreadsToDelete = orderThreadsForProjectCascadeDelete(
+            projectThreads,
+            activeRouteThreadKey,
+          );
+          for (const thread of orderedThreadsToDelete) {
+            await deleteThread(scopeThreadRef(thread.environmentId, thread.id), {
+              deletedThreadKeys,
+              skipWorktreeCleanup: true,
+            });
           }
-          clearProjectDraftThreadId(scopeProjectRef(project.environmentId, project.id));
-          const projectApi = readEnvironmentApi(project.environmentId);
-          if (!projectApi) {
-            throw new Error("Project API unavailable.");
+
+          for (const projectRef of project.memberProjectRefs) {
+            const projectDraftThread = getDraftThreadByProjectRef(projectRef);
+            if (projectDraftThread) {
+              clearComposerDraftForThread(projectDraftThread.draftId);
+            }
+            clearProjectDraftThreadId(projectRef);
           }
-          await projectApi.orchestration.dispatchCommand({
-            type: "project.delete",
-            commandId: newCommandId(),
-            projectId: project.id,
-          });
+
+          for (const projectRef of project.memberProjectRefs) {
+            const projectApi = readEnvironmentApi(projectRef.environmentId);
+            if (!projectApi) {
+              throw new Error("Project API unavailable.");
+            }
+            await projectApi.orchestration.dispatchCommand({
+              type: "project.delete",
+              commandId: newCommandId(),
+              projectId: projectRef.projectId,
+            });
+          }
         } catch (error) {
           const message =
             error instanceof Error ? error.message : "Unknown error removing project.";
@@ -1391,13 +1423,26 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       clearProjectDraftThreadId,
       copyPathToClipboard,
       getDraftThreadByProjectRef,
+      activeRouteThreadKey,
       project.cwd,
-      project.environmentId,
+      deleteThread,
       project.id,
+      project.memberProjectRefs,
       project.name,
-      projectThreads.length,
+      project.projectKey,
+      projectThreads,
+      setProjectHidden,
       suppressProjectClickForContextMenuRef,
     ],
+  );
+
+  const handleHideProjectClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setProjectHidden(project.projectKey, true);
+    },
+    [project.projectKey, setProjectHidden],
   );
 
   const navigateToThread = useCallback(
@@ -1763,10 +1808,25 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             </TooltipPopup>
           </Tooltip>
         )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div className="pointer-events-none absolute top-1 right-1.5 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+        <div className="pointer-events-none absolute top-1 right-1.5 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/project-header:pointer-events-auto group-hover/project-header:opacity-100 group-focus-within/project-header:pointer-events-auto group-focus-within/project-header:opacity-100">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={`Hide ${project.name}`}
+                  className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  onClick={handleHideProjectClick}
+                >
+                  <ArchiveIcon className="size-3.5" />
+                </button>
+              }
+            />
+            <TooltipPopup side="top">Hide project</TooltipPopup>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
                 <button
                   type="button"
                   aria-label={`Create new thread in ${project.name}`}
@@ -1776,13 +1836,13 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
                 >
                   <SquarePenIcon className="size-3.5" />
                 </button>
-              </div>
-            }
-          />
-          <TooltipPopup side="top">
-            {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
-          </TooltipPopup>
-        </Tooltip>
+              }
+            />
+            <TooltipPopup side="top">
+              {newThreadShortcutLabel ? `New thread (${newThreadShortcutLabel})` : "New thread"}
+            </TooltipPopup>
+          </Tooltip>
+        </div>
       </div>
 
       <SidebarProjectThreadList
@@ -1835,7 +1895,7 @@ const SidebarProjectListRow = memo(function SidebarProjectListRow(props: Sidebar
 function T3Wordmark() {
   return (
     <svg
-      aria-label="T3"
+      aria-label="dex"
       className="h-2.5 w-auto shrink-0 text-foreground"
       viewBox="15.5309 37 94.3941 56.96"
       xmlns="http://www.w3.org/2000/svg"
@@ -1845,6 +1905,37 @@ function T3Wordmark() {
         fill="currentColor"
       />
     </svg>
+  );
+}
+
+function resolveThreadAgentProvider(
+  thread: Pick<SidebarThreadSummary, "session" | "agentProvider">,
+): "codex" | "claudeAgent" {
+  return thread.session?.provider ?? thread.agentProvider ?? "codex";
+}
+
+function ThreadAgentIcon({ thread }: { thread: SidebarThreadSummary }) {
+  const provider = resolveThreadAgentProvider(thread);
+  const Icon = provider === "claudeAgent" ? ClaudeAI : OpenAI;
+  const label = provider === "claudeAgent" ? "Claude" : "Codex";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span aria-label={label} className="inline-flex shrink-0 items-center justify-center">
+            <Icon
+              className={
+                provider === "claudeAgent"
+                  ? "size-3.5 text-[#d97757]"
+                  : "size-3.5 text-foreground/70"
+              }
+            />
+          </span>
+        }
+      />
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -2024,6 +2115,35 @@ const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   );
 });
 
+function pluralizeImportCount(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function describeCodexImportResult(result: ServerImportCodexThreadsResult): string {
+  if (result.discoveredThreadCount === 0) {
+    return "No persisted Codex threads were found on this server.";
+  }
+
+  const parts = [pluralizeImportCount(result.processedThreadCount, "thread"), "synced"];
+  const detail: string[] = [];
+  if (result.createdThreadCount > 0) {
+    detail.push(`${pluralizeImportCount(result.createdThreadCount, "new thread")} added`);
+  }
+  if (result.createdProjectCount > 0) {
+    detail.push(`${pluralizeImportCount(result.createdProjectCount, "new project")} added`);
+  }
+  if (result.processedActivityCount > 0) {
+    detail.push(
+      `${pluralizeImportCount(result.processedActivityCount, "activity", "activities")} imported`,
+    );
+  }
+  if (result.skippedThreadCount > 0) {
+    detail.push(`${pluralizeImportCount(result.skippedThreadCount, "thread")} skipped`);
+  }
+
+  return detail.length > 0 ? `${parts.join(" ")}. ${detail.join(", ")}.` : `${parts.join(" ")}.`;
+}
+
 interface SidebarProjectsContentProps {
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
@@ -2033,6 +2153,10 @@ interface SidebarProjectsContentProps {
   projectSortOrder: SidebarProjectSortOrder;
   threadSortOrder: SidebarThreadSortOrder;
   updateSettings: ReturnType<typeof useUpdateSettings>["updateSettings"];
+  visibleProjectsCollapsed: boolean;
+  handleToggleCollapseAllProjects: () => void;
+  isImportingCodexThreads: boolean;
+  handleImportCodexThreads: () => void;
   shouldShowProjectPathEntry: boolean;
   handleStartAddProject: () => void;
   isElectron: boolean;
@@ -2057,6 +2181,8 @@ interface SidebarProjectsContentProps {
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
   sortedProjects: readonly SidebarProjectSnapshot[];
+  archivedProjects: readonly SidebarProjectSnapshot[];
+  setProjectHidden: (projectKey: string, hidden: boolean) => void;
   expandedThreadListsByProject: ReadonlySet<string>;
   activeRouteProjectKey: string | null;
   routeThreadKey: string | null;
@@ -2085,6 +2211,10 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     projectSortOrder,
     threadSortOrder,
     updateSettings,
+    visibleProjectsCollapsed,
+    handleToggleCollapseAllProjects,
+    isImportingCodexThreads,
+    handleImportCodexThreads,
     shouldShowProjectPathEntry,
     handleStartAddProject,
     isElectron,
@@ -2109,6 +2239,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     archiveThread,
     deleteThread,
     sortedProjects,
+    archivedProjects,
+    setProjectHidden,
     expandedThreadListsByProject,
     activeRouteProjectKey,
     routeThreadKey,
@@ -2223,6 +2355,52 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 render={
                   <button
                     type="button"
+                    aria-label={
+                      visibleProjectsCollapsed ? "Expand all projects" : "Collapse all projects"
+                    }
+                    className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                    disabled={sortedProjects.length === 0}
+                    onClick={handleToggleCollapseAllProjects}
+                  />
+                }
+              >
+                <ChevronsUpDownIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="right">
+                {visibleProjectsCollapsed ? "Expand all projects" : "Collapse all projects"}
+              </TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label={
+                      isImportingCodexThreads ? "Syncing Codex threads" : "Sync Codex threads"
+                    }
+                    className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-50"
+                    disabled={isImportingCodexThreads}
+                    onClick={handleImportCodexThreads}
+                  />
+                }
+              >
+                {isImportingCodexThreads ? (
+                  <LoaderCircleIcon className="size-3.5 animate-spin" />
+                ) : (
+                  <CloudIcon className="size-3.5" />
+                )}
+              </TooltipTrigger>
+              <TooltipPopup side="right">
+                {isImportingCodexThreads
+                  ? "Syncing existing Codex threads from this server"
+                  : "Sync existing Codex threads from this server"}
+              </TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
                     aria-label={shouldShowProjectPathEntry ? "Cancel add project" : "Add project"}
                     aria-pressed={shouldShowProjectPathEntry}
                     className="inline-flex size-5 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
@@ -2242,6 +2420,13 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
             </Tooltip>
           </div>
         </div>
+        {isImportingCodexThreads ? (
+          <div className="mb-2 space-y-1 px-1">
+            <SidebarMenuSkeleton showIcon className="h-7 rounded-lg px-2" />
+            <SidebarMenuSkeleton showIcon className="h-7 rounded-lg px-2" />
+            <SidebarMenuSkeleton showIcon className="h-7 rounded-lg px-2" />
+          </div>
+        ) : null}
         {shouldShowProjectPathEntry && (
           <div className="mb-2 px-1">
             {isElectron && (
@@ -2324,6 +2509,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         }
                         isManualProjectSorting={isManualProjectSorting}
                         dragHandleProps={dragHandleProps}
+                        setProjectHidden={setProjectHidden}
                       />
                     )}
                   </SortableProjectItem>
@@ -2354,17 +2540,51 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
                 isManualProjectSorting={isManualProjectSorting}
                 dragHandleProps={null}
+                setProjectHidden={setProjectHidden}
               />
             ))}
           </SidebarMenu>
         )}
 
-        {projectsLength === 0 && !shouldShowProjectPathEntry && (
+        {projectsLength === 0 && archivedProjects.length === 0 && !shouldShowProjectPathEntry && (
           <div className="px-2 pt-4 text-center text-xs text-muted-foreground/60">
             No projects yet
           </div>
         )}
       </SidebarGroup>
+      {archivedProjects.length > 0 ? (
+        <SidebarGroup className="px-2 pt-1 pb-2">
+          <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+              Archived projects
+            </span>
+          </div>
+          <SidebarMenu>
+            {archivedProjects.map((project) => (
+              <SidebarMenuItem key={`archived-${project.projectKey}`} className="rounded-md">
+                <SidebarMenuButton
+                  size="sm"
+                  className="gap-2 px-2 py-1.5 text-left text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                  onClick={() => setProjectHidden(project.projectKey, false)}
+                >
+                  <ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />
+                  <span className="flex-1 truncate text-xs">{project.name}</span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <span className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/70">
+                          <Undo2Icon className="size-3.5" />
+                        </span>
+                      }
+                    />
+                    <TooltipPopup side="top">Show project</TooltipPopup>
+                  </Tooltip>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
+      ) : null}
     </SidebarContent>
   );
 });
@@ -2374,8 +2594,11 @@ export default function Sidebar() {
   const sidebarThreads = useStore(useShallow(selectSidebarThreadsAcrossEnvironments));
   const activeEnvironmentId = useStore((store) => store.activeEnvironmentId);
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
+  const projectHiddenById = useUiStateStore((store) => store.projectHiddenById);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const reorderProjects = useUiStateStore((store) => store.reorderProjects);
+  const setProjectsExpanded = useUiStateStore((store) => store.setProjectsExpanded);
+  const setProjectHidden = useUiStateStore((store) => store.setProjectHidden);
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const isOnSettings = pathname.startsWith("/settings");
@@ -2395,6 +2618,7 @@ export default function Sidebar() {
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
   const [isAddingProject, setIsAddingProject] = useState(false);
+  const [isImportingCodexThreads, setIsImportingCodexThreads] = useState(false);
   const [addProjectError, setAddProjectError] = useState<string | null>(null);
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
@@ -2673,6 +2897,47 @@ export default function Sidebar() {
 
   const canAddProject = newCwd.trim().length > 0 && !isAddingProject;
 
+  const handleImportCodexThreads = useCallback(() => {
+    const api = readLocalApi();
+    if (!api || isImportingCodexThreads) {
+      return;
+    }
+
+    setIsImportingCodexThreads(true);
+    const importToastId = toastManager.add({
+      type: "loading",
+      title: "Syncing Codex threads...",
+      description: "Scanning Codex history on this server for new or updated threads.",
+      timeout: 0,
+    });
+    void api.server
+      .importCodexThreads()
+      .then((result) => {
+        toastManager.update(importToastId, {
+          type: "success",
+          title:
+            result.discoveredThreadCount === 0 ? "No Codex threads found" : "Codex sync complete",
+          description: describeCodexImportResult(result),
+          data: {
+            dismissAfterVisibleMs: 10_000,
+          },
+        });
+      })
+      .catch((error) => {
+        toastManager.update(importToastId, {
+          type: "error",
+          title: "Failed to sync Codex threads",
+          description:
+            error instanceof Error
+              ? error.message
+              : "An unexpected error occurred while syncing Codex threads.",
+        });
+      })
+      .finally(() => {
+        setIsImportingCodexThreads(false);
+      });
+  }, [isImportingCodexThreads]);
+
   const handlePickFolder = async () => {
     const api = readLocalApi();
     if (!api || isPickingFolder) return;
@@ -2811,6 +3076,14 @@ export default function Sidebar() {
     sidebarProjects,
     visibleThreads,
   ]);
+  const visibleSortedProjects = useMemo(
+    () => sortedProjects.filter((project) => !projectHiddenById[project.projectKey]),
+    [projectHiddenById, sortedProjects],
+  );
+  const archivedProjects = useMemo(
+    () => sortedProjects.filter((project) => projectHiddenById[project.projectKey]),
+    [projectHiddenById, sortedProjects],
+  );
   const isManualProjectSorting = sidebarProjectSortOrder === "manual";
   const visibleSidebarThreadKeys = useMemo(
     () =>
@@ -3194,6 +3467,20 @@ export default function Sidebar() {
       return next;
     });
   }, []);
+  const visibleProjectsCollapsed = useMemo(
+    () =>
+      visibleSortedProjects.length > 0 &&
+      visibleSortedProjects.every(
+        (project) => (projectExpandedById[project.projectKey] ?? true) === false,
+      ),
+    [projectExpandedById, visibleSortedProjects],
+  );
+  const handleToggleCollapseAllProjects = useCallback(() => {
+    setProjectsExpanded(
+      visibleSortedProjects.map((project) => project.projectKey),
+      visibleProjectsCollapsed,
+    );
+  }, [setProjectsExpanded, visibleProjectsCollapsed, visibleSortedProjects]);
 
   return (
     <>
@@ -3212,6 +3499,10 @@ export default function Sidebar() {
             projectSortOrder={sidebarProjectSortOrder}
             threadSortOrder={sidebarThreadSortOrder}
             updateSettings={updateSettings}
+            visibleProjectsCollapsed={visibleProjectsCollapsed}
+            handleToggleCollapseAllProjects={handleToggleCollapseAllProjects}
+            isImportingCodexThreads={isImportingCodexThreads}
+            handleImportCodexThreads={handleImportCodexThreads}
             shouldShowProjectPathEntry={shouldShowProjectPathEntry}
             handleStartAddProject={handleStartAddProject}
             isElectron={isElectron}
@@ -3235,7 +3526,9 @@ export default function Sidebar() {
             handleNewThread={handleNewThread}
             archiveThread={archiveThread}
             deleteThread={deleteThread}
-            sortedProjects={sortedProjects}
+            sortedProjects={visibleSortedProjects}
+            archivedProjects={archivedProjects}
+            setProjectHidden={setProjectHidden}
             expandedThreadListsByProject={expandedThreadListsByProject}
             activeRouteProjectKey={activeRouteProjectKey}
             routeThreadKey={routeThreadKey}
@@ -3249,7 +3542,7 @@ export default function Sidebar() {
             suppressProjectClickAfterDragRef={suppressProjectClickAfterDragRef}
             suppressProjectClickForContextMenuRef={suppressProjectClickForContextMenuRef}
             attachProjectListAutoAnimateRef={attachProjectListAutoAnimateRef}
-            projectsLength={projects.length}
+            projectsLength={visibleSortedProjects.length}
           />
 
           <SidebarSeparator />

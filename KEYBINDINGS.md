@@ -1,8 +1,8 @@
 # Keybindings
 
-T3 Code reads keybindings from:
+dex reads keybindings from:
 
-- `~/.t3/keybindings.json`
+- `~/.dex/keybindings.json`
 
 The file must be a JSON array of rules:
 

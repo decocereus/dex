@@ -51,6 +51,8 @@ import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import {
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
+  authCompanionPairingPayloadRouteLayer,
+  authCompanionWebSessionRouteLayer,
   authClientsRevokeOthersRouteLayer,
   authClientsRevokeRouteLayer,
   authClientsRouteLayer,
@@ -69,6 +71,17 @@ import {
   persistServerRuntimeState,
 } from "./serverRuntimeState";
 import {
+  companionDispatchRouteLayer,
+  companionNativeFileSearchRouteLayer,
+  companionNativeSkillsRouteLayer,
+  companionNativeThreadArchiveRouteLayer,
+  companionNativeThreadConfigureRouteLayer,
+  companionNativeThreadCreateRouteLayer,
+  companionNativeShellSnapshotRouteLayer,
+  companionNativeThreadSnapshotRouteLayer,
+  companionNativeThreadStreamRouteLayer,
+  companionShellSnapshotRouteLayer,
+  companionThreadDetailRouteLayer,
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
 } from "./orchestration/http";
@@ -157,9 +170,13 @@ const ProviderLayerLive = Layer.unwrap(
       Layer.provide(claudeAdapterLayer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
-    return makeProviderServiceLive(
-      canonicalEventLogger ? { canonicalEventLogger } : undefined,
-    ).pipe(Layer.provide(adapterRegistryLayer), Layer.provide(providerSessionDirectoryLayer));
+    return Layer.mergeAll(
+      makeProviderServiceLive(canonicalEventLogger ? { canonicalEventLogger } : undefined).pipe(
+        Layer.provide(adapterRegistryLayer),
+        Layer.provide(providerSessionDirectoryLayer),
+      ),
+      providerSessionDirectoryLayer,
+    );
   }),
 );
 
@@ -224,6 +241,8 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
 export const makeRoutesLayer = Layer.mergeAll(
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
+  authCompanionPairingPayloadRouteLayer,
+  authCompanionWebSessionRouteLayer,
   authClientsRevokeOthersRouteLayer,
   authClientsRevokeRouteLayer,
   authClientsRouteLayer,
@@ -233,6 +252,17 @@ export const makeRoutesLayer = Layer.mergeAll(
   authSessionRouteLayer,
   authWebSocketTokenRouteLayer,
   attachmentsRouteLayer,
+  companionDispatchRouteLayer,
+  companionNativeFileSearchRouteLayer,
+  companionNativeSkillsRouteLayer,
+  companionNativeThreadArchiveRouteLayer,
+  companionNativeThreadConfigureRouteLayer,
+  companionNativeThreadCreateRouteLayer,
+  companionNativeShellSnapshotRouteLayer,
+  companionNativeThreadSnapshotRouteLayer,
+  companionNativeThreadStreamRouteLayer,
+  companionShellSnapshotRouteLayer,
+  companionThreadDetailRouteLayer,
   orchestrationDispatchRouteLayer,
   orchestrationSnapshotRouteLayer,
   otlpTracesProxyRouteLayer,

@@ -11,9 +11,11 @@ import {
   KeybindingRule,
   MessageId,
   OpenError,
+  TurnId,
   TerminalNotRunningError,
   type OrchestrationCommand,
   type OrchestrationEvent,
+  type OrchestrationReadModel,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
@@ -21,7 +23,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
   EditorId,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
 import {
@@ -78,6 +80,8 @@ import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
+import { ProviderSessionDirectory } from "./provider/Services/ProviderSessionDirectory.ts";
+import { ProviderSessionDirectoryPersistenceError } from "./provider/Errors.ts";
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
@@ -100,6 +104,10 @@ import {
   type ServerEnvironmentShape,
 } from "./environment/Services/ServerEnvironment.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
+import {
+  WorkspaceEntries,
+  type WorkspaceEntriesShape,
+} from "./workspace/Services/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
@@ -124,7 +132,7 @@ const testEnvironmentDescriptor = {
     repositoryIdentity: true,
   },
 };
-const makeDefaultOrchestrationReadModel = () => {
+const makeDefaultOrchestrationReadModel = (): OrchestrationReadModel => {
   const now = new Date().toISOString();
   return {
     snapshotSequence: 0,
@@ -260,9 +268,9 @@ const makeBrowserOtlpPayload = (spanName: string) =>
         url: collector.url,
         exportInterval: "10 millis",
         resource: {
-          serviceName: "t3-web",
+          serviceName: "dex-web",
           attributes: {
-            "service.runtime": "t3-web",
+            "service.runtime": "dex-web",
             "service.mode": "browser",
             "service.version": "test",
           },
@@ -308,11 +316,12 @@ const buildAppUnderTest = (options?: {
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
     serverEnvironment?: Partial<ServerEnvironmentShape>;
     repositoryIdentityResolver?: Partial<RepositoryIdentityResolverShape>;
+    workspaceEntries?: Partial<WorkspaceEntriesShape>;
   };
 }) =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-test-" });
+    const tempBaseDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "dex-router-test-" });
     const baseDir = options?.config?.baseDir ?? tempBaseDir;
     const devUrl = options?.config?.devUrl;
     const derivedPaths = yield* deriveServerPaths(baseDir, devUrl);
@@ -326,7 +335,7 @@ const buildAppUnderTest = (options?: {
       otlpTracesUrl: undefined,
       otlpMetricsUrl: undefined,
       otlpExportIntervalMs: 10_000,
-      otlpServiceName: "t3-server",
+      otlpServiceName: "dex-server",
       mode: "desktop",
       port: 0,
       host: "127.0.0.1",
@@ -372,6 +381,21 @@ const buildAppUnderTest = (options?: {
           refresh: () => Effect.succeed([]),
           streamChanges: Stream.empty,
           ...options?.layers?.providerRegistry,
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(ProviderSessionDirectory)({
+          upsert: () => Effect.void,
+          getProvider: () =>
+            Effect.fail(
+              new ProviderSessionDirectoryPersistenceError({
+                operation: "server.test.getProvider",
+                detail: "Provider binding not found in test harness.",
+              }),
+            ),
+          getBinding: () => Effect.succeed(Option.none()),
+          remove: () => Effect.void,
+          listThreadIds: () => Effect.succeed([]),
         }),
       ),
       Layer.provide(
@@ -495,6 +519,13 @@ const buildAppUnderTest = (options?: {
       ),
       Layer.provideMerge(authTestLayer),
       Layer.provide(workspaceAndProjectServicesLayer),
+      Layer.provide(
+        Layer.mock(WorkspaceEntries)({
+          search: () => Effect.succeed({ entries: [], truncated: false }),
+          invalidate: () => Effect.void,
+          ...options?.layers?.workspaceEntries,
+        }),
+      ),
       Layer.provideMerge(FetchHttpClient.layer),
       Layer.provide(layerConfig),
     );
@@ -689,7 +720,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-router-static-" });
+      const staticDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "dex-router-static-" });
       const indexPath = path.join(staticDir, "index.html");
       yield* fileSystem.writeFileString(indexPath, "<html>router-static-ok</html>");
 
@@ -723,7 +754,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-router-project-favicon-",
+        prefix: "dex-router-project-favicon-",
       });
       yield* fileSystem.writeFileString(
         path.join(projectDir, "favicon.svg"),
@@ -752,7 +783,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "t3-router-project-favicon-fallback-",
+        prefix: "dex-router-project-favicon-fallback-",
       });
 
       yield* buildAppUnderTest({
@@ -777,7 +808,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       yield* buildAppUnderTest();
 
-      const url = yield* getHttpServerUrl("/.well-known/t3/environment");
+      const url = yield* getHttpServerUrl("/.well-known/dex/environment");
       const response = yield* Effect.promise(() => fetch(url));
       const body = (yield* Effect.promise(() =>
         response.json(),
@@ -908,6 +939,877 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       assert.equal(typeof wsTokenBody.token, "string");
       assert.isTrue(wsTokenBody.token.length > 0);
       assert.equal(typeof wsTokenBody.expiresAt, "string");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("issues Dex companion pairing payloads for owner sessions", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingUrl = yield* getHttpServerUrl("/api/auth/companion/pairing");
+      const response = yield* Effect.promise(() =>
+        fetch(pairingUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            target: {
+              httpBaseUrl: "https://example.test",
+              wsBaseUrl: "wss://example.test",
+            },
+            label: "Amartya's iPhone",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly version: number;
+        readonly environment: { readonly environmentId: string; readonly label: string };
+        readonly auth: { readonly policy: string };
+        readonly target: { readonly httpBaseUrl: string; readonly wsBaseUrl: string };
+        readonly pairing: { readonly credential: string; readonly label?: string };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.version, 1);
+      assert.equal(body.environment.environmentId, testEnvironmentDescriptor.environmentId);
+      assert.equal(body.auth.policy, "desktop-managed-local");
+      assert.equal(body.target.httpBaseUrl, "https://example.test");
+      assert.equal(body.target.wsBaseUrl, "wss://example.test");
+      assert.equal(body.pairing.label, "Amartya's iPhone");
+      assert.isTrue((body.pairing.credential?.length ?? 0) > 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("bootstraps a web session for companion clients from a bearer session", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const bootstrapUrl = yield* getHttpServerUrl(
+        "/api/auth/companion/web-session?path=%2F_chat%2F",
+      );
+      const response = yield* Effect.promise(() =>
+        fetch(bootstrapUrl, {
+          redirect: "manual",
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+
+      assert.equal(response.status, 302);
+      assert.equal(response.headers.get("location"), "/_chat/");
+      const setCookie = response.headers.get("set-cookie");
+      assert.isDefined(setCookie);
+      assert.include(setCookie ?? "", "HttpOnly");
+      assert.include(setCookie ?? "", "SameSite=Lax");
+
+      const sessionUrl = yield* getHttpServerUrl("/api/auth/session");
+      const sessionResponse = yield* Effect.promise(() =>
+        fetch(sessionUrl, {
+          headers: {
+            cookie: setCookie?.split(";")[0] ?? "",
+          },
+        }),
+      );
+      const sessionBody = (yield* Effect.promise(() => sessionResponse.json())) as {
+        readonly authenticated: boolean;
+      };
+
+      assert.equal(sessionResponse.status, 200);
+      assert.equal(sessionBody.authenticated, true);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves companion shell snapshots to authenticated client bearer sessions", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const shellUrl = yield* getHttpServerUrl("/api/companion/shell");
+      const response = yield* Effect.promise(() =>
+        fetch(shellUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly snapshotSequence: number;
+        readonly projects: ReadonlyArray<{ readonly id: string }>;
+        readonly threads: ReadonlyArray<{ readonly id: string }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.isTrue(Array.isArray(body.projects));
+      assert.isTrue(Array.isArray(body.threads));
+      assert.equal(typeof body.snapshotSequence, "number");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves native companion shell snapshots with session summaries", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      const nativeThread = {
+        ...baseReadModel.threads[0]!,
+        branch: "main",
+        worktreePath: "/tmp/default-project",
+        updatedAt: now,
+        latestTurn: {
+          turnId: TurnId.make("turn-default"),
+          state: "running" as const,
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [
+          {
+            id: MessageId.make("message-user-default"),
+            role: "user" as const,
+            text: "Ship the mobile continuation flow.",
+            turnId: TurnId.make("turn-default"),
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        session: {
+          threadId: defaultThreadId,
+          status: "running" as const,
+          providerName: "codex",
+          runtimeMode: "full-access" as const,
+          activeTurnId: TurnId.make("turn-default"),
+          lastError: null,
+          updatedAt: now,
+        },
+      };
+      const nativeReadModel: ReturnType<typeof makeDefaultOrchestrationReadModel> = {
+        ...baseReadModel,
+        snapshotSequence: 1,
+        updatedAt: now,
+        threads: [nativeThread],
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getSnapshot: () => Effect.succeed(nativeReadModel),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const shellUrl = yield* getHttpServerUrl("/api/companion/native/shell");
+      const response = yield* Effect.promise(() =>
+        fetch(shellUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly environment: { readonly environmentId: string; readonly label: string };
+        readonly sessionSummaries: ReadonlyArray<{
+          readonly threadRef: { readonly environmentId: string; readonly threadId: string };
+          readonly title: string;
+          readonly preview: string;
+          readonly model: string;
+          readonly modelProvider: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.environment.environmentId, testEnvironmentDescriptor.environmentId);
+      assert.equal(body.environment.label, testEnvironmentDescriptor.label);
+      assert.isTrue(Array.isArray(body.sessionSummaries));
+      assert.equal(
+        body.sessionSummaries[0]?.threadRef.environmentId,
+        testEnvironmentDescriptor.environmentId,
+      );
+      assert.equal(body.sessionSummaries[0]?.threadRef.threadId, defaultThreadId);
+      assert.equal(body.sessionSummaries[0]?.title, "Default Thread");
+      assert.equal(body.sessionSummaries[0]?.preview, "Ship the mobile continuation flow.");
+      assert.equal(body.sessionSummaries[0]?.model, "gpt-5-codex");
+      assert.equal(body.sessionSummaries[0]?.modelProvider, "codex");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves native companion thread snapshots with pending approvals and user input", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      const nativeThread = {
+        ...baseReadModel.threads[0]!,
+        worktreePath: "/tmp/default-project",
+        updatedAt: now,
+        latestTurn: {
+          turnId: TurnId.make("turn-default"),
+          state: "running" as const,
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [
+          {
+            id: MessageId.make("message-user-default"),
+            role: "user" as const,
+            text: "Ship the mobile continuation flow.",
+            turnId: TurnId.make("turn-default"),
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        session: {
+          threadId: defaultThreadId,
+          status: "running" as const,
+          providerName: "codex",
+          runtimeMode: "full-access" as const,
+          activeTurnId: TurnId.make("turn-default"),
+          lastError: null,
+          updatedAt: now,
+        },
+        activities: [
+          {
+            id: EventId.make("activity-approval-requested"),
+            tone: "approval" as const,
+            kind: "approval.requested",
+            summary: "Command approval requested",
+            payload: {
+              requestId: "approval-request-1",
+              requestKind: "command",
+              requestType: "command_execution_approval",
+            },
+            turnId: TurnId.make("turn-default"),
+            createdAt: now,
+          },
+          {
+            id: EventId.make("activity-user-input-requested"),
+            tone: "info" as const,
+            kind: "user-input.requested",
+            summary: "User input requested",
+            payload: {
+              requestId: "user-input-request-1",
+              questions: [
+                {
+                  id: "question-1",
+                  header: "Choice",
+                  question: "Pick one",
+                  options: [{ label: "A", description: "Option A" }],
+                  multiSelect: false,
+                },
+              ],
+            },
+            turnId: TurnId.make("turn-default"),
+            createdAt: now,
+          },
+        ],
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getThreadDetailById: (threadId) =>
+              Effect.succeed(
+                threadId === defaultThreadId
+                  ? Option.some(nativeThread)
+                  : Option.none<
+                      ReturnType<typeof makeDefaultOrchestrationReadModel>["threads"][number]
+                    >(),
+              ),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const threadUrl = yield* getHttpServerUrl(
+        `/api/companion/native/thread?threadId=${defaultThreadId}`,
+      );
+      const response = yield* Effect.promise(() =>
+        fetch(threadUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly summary: {
+          readonly threadRef: { readonly threadId: string };
+          readonly preview: string;
+        };
+        readonly thread: {
+          readonly id: string;
+          readonly messages: ReadonlyArray<{ readonly text: string }>;
+        };
+        readonly pendingApprovals: ReadonlyArray<{
+          readonly requestId: string;
+          readonly requestKind: string | null;
+        }>;
+        readonly pendingUserInputs: ReadonlyArray<{
+          readonly requestId: string;
+          readonly questions: ReadonlyArray<{ readonly id: string; readonly question: string }>;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.summary.threadRef.threadId, defaultThreadId);
+      assert.equal(body.summary.preview, "Ship the mobile continuation flow.");
+      assert.equal(body.thread.id, defaultThreadId);
+      assert.equal(body.thread.messages[0]?.text, "Ship the mobile continuation flow.");
+      assert.equal(body.pendingApprovals[0]?.requestId, "approval-request-1");
+      assert.equal(body.pendingApprovals[0]?.requestKind, "command");
+      assert.equal(body.pendingUserInputs[0]?.requestId, "user-input-request-1");
+      assert.equal(body.pendingUserInputs[0]?.questions[0]?.id, "question-1");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("allows paired companion clients to create native companion threads", () =>
+    Effect.gen(function* () {
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      let createdThread: OrchestrationReadModel["threads"][number] | null = null;
+      const dispatchedCommands: OrchestrationCommand[] = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                if (command.type === "thread.create") {
+                  createdThread = {
+                    ...baseReadModel.threads[0]!,
+                    id: command.threadId,
+                    projectId: command.projectId,
+                    title: command.title,
+                    modelSelection: command.modelSelection,
+                    runtimeMode: command.runtimeMode,
+                    interactionMode: command.interactionMode,
+                    branch: command.branch,
+                    worktreePath: command.worktreePath,
+                    createdAt: command.createdAt,
+                    updatedAt: command.createdAt,
+                    archivedAt: null,
+                    deletedAt: null,
+                    messages: [],
+                    activities: [],
+                    checkpoints: [],
+                    proposedPlans: [],
+                    latestTurn: null,
+                    session: null,
+                  };
+                }
+                return { sequence: dispatchedCommands.length };
+              }),
+          },
+          projectionSnapshotQuery: {
+            getThreadDetailById: (threadId) =>
+              Effect.succeed(
+                createdThread?.id === threadId
+                  ? Option.some(createdThread)
+                  : Option.none<OrchestrationReadModel["threads"][number]>(),
+              ),
+          },
+        },
+      });
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const createUrl = yield* getHttpServerUrl("/api/companion/native/thread/create");
+      const response = yield* Effect.promise(() =>
+        fetch(createUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            projectId: defaultProjectId,
+            title: "Paired iPhone thread",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "approval-required",
+            interactionMode: "plan",
+            worktreePath: "/tmp/default-project",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly summary: {
+          readonly title: string;
+          readonly runtimeMode: string;
+          readonly interactionMode: string;
+          readonly threadRef: { readonly threadId: string };
+        };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(dispatchedCommands[0]?.type, "thread.create");
+      assert.equal(body.summary.title, "Paired iPhone thread");
+      assert.equal(body.summary.runtimeMode, "approval-required");
+      assert.equal(body.summary.interactionMode, "plan");
+      assert.equal(
+        body.summary.threadRef.threadId,
+        dispatchedCommands.find(
+          (command): command is Extract<OrchestrationCommand, { type: "thread.create" }> =>
+            command.type === "thread.create",
+        )?.threadId,
+      );
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("allows paired companion clients to configure native companion threads", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      let configuredThread: OrchestrationReadModel["threads"][number] = {
+        ...baseReadModel.threads[0]!,
+        title: "Default Thread",
+        modelSelection: defaultModelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        updatedAt: now,
+      };
+      const dispatchedCommands: OrchestrationCommand[] = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                switch (command.type) {
+                  case "thread.meta.update":
+                    configuredThread = {
+                      ...configuredThread,
+                      ...(command.title !== undefined ? { title: command.title } : {}),
+                      ...(command.modelSelection !== undefined
+                        ? { modelSelection: command.modelSelection }
+                        : {}),
+                      updatedAt: new Date().toISOString(),
+                    };
+                    break;
+                  case "thread.runtime-mode.set":
+                    configuredThread = {
+                      ...configuredThread,
+                      runtimeMode: command.runtimeMode,
+                      updatedAt: new Date().toISOString(),
+                    };
+                    break;
+                  case "thread.interaction-mode.set":
+                    configuredThread = {
+                      ...configuredThread,
+                      interactionMode: command.interactionMode,
+                      updatedAt: new Date().toISOString(),
+                    };
+                    break;
+                  default:
+                    break;
+                }
+                return { sequence: dispatchedCommands.length };
+              }),
+          },
+          projectionSnapshotQuery: {
+            getThreadDetailById: (threadId) =>
+              Effect.succeed(
+                threadId === defaultThreadId
+                  ? Option.some(configuredThread)
+                  : Option.none<OrchestrationReadModel["threads"][number]>(),
+              ),
+          },
+        },
+      });
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const configureUrl = yield* getHttpServerUrl("/api/companion/native/thread/configure");
+      const response = yield* Effect.promise(() =>
+        fetch(configureUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            threadId: defaultThreadId,
+            title: "Renamed on iPhone",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5.4",
+              options: {
+                codex: {
+                  reasoningEffort: "high",
+                },
+              },
+            },
+            runtimeMode: "approval-required",
+            interactionMode: "plan",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly summary: {
+          readonly title: string;
+          readonly runtimeMode: string;
+          readonly interactionMode: string;
+          readonly model: string;
+        };
+      };
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(
+        dispatchedCommands.map((command) => command.type),
+        ["thread.meta.update", "thread.runtime-mode.set", "thread.interaction-mode.set"],
+      );
+      assert.equal(body.summary.title, "Renamed on iPhone");
+      assert.equal(body.summary.model, "gpt-5.4");
+      assert.equal(body.summary.runtimeMode, "approval-required");
+      assert.equal(body.summary.interactionMode, "plan");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("allows paired companion clients to search native companion files", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const searchRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "dex-native-search-",
+      });
+      const conversationDir = path.join(searchRoot, "apps/ios/Sources/Litter/Views");
+      yield* fileSystem.makeDirectory(conversationDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(conversationDir, "ConversationView.swift"),
+        "struct ConversationView {}",
+      );
+      yield* fileSystem.writeFileString(
+        path.join(conversationDir, "ConversationComposerView.swift"),
+        "struct ConversationComposerView {}",
+      );
+
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const searchUrl = yield* getHttpServerUrl("/api/companion/native/files/search");
+      const response = yield* Effect.promise(() =>
+        fetch(searchUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            cwd: searchRoot,
+            query: "ConversationView",
+            limit: 20,
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly results: ReadonlyArray<{
+          readonly path: string;
+          readonly matchType: string;
+          readonly fileName: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.results[0]?.path, "apps/ios/Sources/Litter/Views/ConversationView.swift");
+      assert.equal(body.results[0]?.matchType, "file");
+      assert.equal(body.results[0]?.fileName, "ConversationView.swift");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("allows paired companion clients to list native companion skills", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          providerRegistry: {
+            getProviders: Effect.succeed([
+              {
+                provider: "codex" as const,
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                status: "ready" as const,
+                auth: { status: "authenticated" as const },
+                checkedAt: new Date().toISOString(),
+                models: [],
+                slashCommands: [],
+                skills: [
+                  {
+                    name: "gh-fix-ci",
+                    description: "Debug failing CI checks",
+                    path: "/Users/test/.codex/skills/gh-fix-ci/SKILL.md",
+                    scope: "user",
+                    enabled: true,
+                    displayName: "Fix CI",
+                    shortDescription: "Investigate broken GitHub Actions runs",
+                  },
+                ],
+              },
+              {
+                provider: "claudeAgent" as const,
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                status: "ready" as const,
+                auth: { status: "authenticated" as const },
+                checkedAt: new Date().toISOString(),
+                models: [],
+                slashCommands: [],
+                skills: [],
+              },
+            ]),
+            refresh: () =>
+              Effect.succeed([
+                {
+                  provider: "codex" as const,
+                  enabled: true,
+                  installed: true,
+                  version: "1.0.0",
+                  status: "ready" as const,
+                  auth: { status: "authenticated" as const },
+                  checkedAt: new Date().toISOString(),
+                  models: [],
+                  slashCommands: [],
+                  skills: [
+                    {
+                      name: "gh-fix-ci",
+                      description: "Debug failing CI checks",
+                      path: "/Users/test/.codex/skills/gh-fix-ci/SKILL.md",
+                      scope: "user",
+                      enabled: true,
+                      displayName: "Fix CI",
+                      shortDescription: "Investigate broken GitHub Actions runs",
+                    },
+                  ],
+                },
+                {
+                  provider: "claudeAgent" as const,
+                  enabled: true,
+                  installed: true,
+                  version: "1.0.0",
+                  status: "ready" as const,
+                  auth: { status: "authenticated" as const },
+                  checkedAt: new Date().toISOString(),
+                  models: [],
+                  slashCommands: [],
+                  skills: [],
+                },
+              ]),
+          },
+        },
+      });
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const skillsUrl = yield* getHttpServerUrl("/api/companion/native/skills/list");
+      const response = yield* Effect.promise(() =>
+        fetch(skillsUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            cwd: "/Users/amartyasingh/Documents/projects/dex",
+            forceReload: true,
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly skills: ReadonlyArray<{
+          readonly name: string;
+          readonly displayName: string;
+          readonly shortDescription: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.skills[0]?.name, "gh-fix-ci");
+      assert.equal(body.skills[0]?.displayName, "Fix CI");
+      assert.equal(body.skills[0]?.shortDescription, "Investigate broken GitHub Actions runs");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects non-owner companion dispatch for disallowed command types", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingTokenUrl = yield* getHttpServerUrl("/api/auth/pairing-token");
+      const pairingResponse = yield* Effect.promise(() =>
+        fetch(pairingTokenUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ label: "iPhone client" }),
+        }),
+      );
+      const pairingBody = (yield* Effect.promise(() => pairingResponse.json())) as {
+        readonly credential: string;
+      };
+
+      const clientBootstrapUrl = yield* getHttpServerUrl("/api/auth/bootstrap/bearer");
+      const clientBootstrapResponse = yield* Effect.promise(() =>
+        fetch(clientBootstrapUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ credential: pairingBody.credential }),
+        }),
+      );
+      const clientBootstrapBody = (yield* Effect.promise(() => clientBootstrapResponse.json())) as {
+        readonly sessionToken: string;
+      };
+
+      const dispatchUrl = yield* getHttpServerUrl("/api/companion/dispatch");
+      const response = yield* Effect.promise(() =>
+        fetch(dispatchUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${clientBootstrapBody.sessionToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "thread.create",
+            commandId: CommandId.make("companion-disallowed"),
+            threadId: ThreadId.make("thread-companion-disallowed"),
+            projectId: defaultProjectId,
+            title: "Should fail",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: new Date().toISOString(),
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error: string };
+
+      assert.equal(response.status, 400);
+      assert.include(body.error, "Client sessions cannot dispatch thread.create");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
@@ -1275,7 +2177,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
         const projectDir = yield* fileSystem.makeTempDirectoryScoped({
-          prefix: "t3-router-project-favicon-query-token-",
+          prefix: "dex-router-project-favicon-query-token-",
         });
 
         yield* buildAppUnderTest();
@@ -1432,7 +2334,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               attributes: [
                 {
                   key: "service.name",
-                  value: { stringValue: "t3-web" },
+                  value: { stringValue: "dex-web" },
                 },
               ],
             },
@@ -1573,7 +2475,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             "rpc.method": "server.getSettings",
           },
           resourceAttributes: {
-            "service.name": "t3-web",
+            "service.name": "dex-web",
           },
           scope: {
             name: "effect",
@@ -1703,7 +2605,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(record.links, []);
         assert.equal(record.scope.name, scopeSpan.scope.name);
         assert.deepEqual(record.scope.attributes, {});
-        assert.equal(record.resourceAttributes["service.name"], "t3-web");
+        assert.equal(record.resourceAttributes["service.name"], "dex-web");
         assert.equal(record.status?.code, String(span.status.code));
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
@@ -1764,7 +2666,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-auth-required-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-auth-required-" });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -1936,7 +2838,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-search-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-project-search-" });
       yield* fs.writeFileString(
         path.join(workspaceDir, "needle-file.ts"),
         "export const needle = 1;",
@@ -1989,7 +2891,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-project-write-" });
 
       yield* buildAppUnderTest();
 
@@ -2013,7 +2915,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("routes websocket rpc projects.writeFile errors", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-ws-project-write-" });
+      const workspaceDir = yield* fs.makeTempDirectoryScoped({ prefix: "dex-ws-project-write-" });
 
       yield* buildAppUnderTest();
 
@@ -2818,16 +3720,16 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   it.effect("enriches replayed project events with repository identity metadata", () =>
     Effect.gen(function* () {
       const repositoryIdentity = {
-        canonicalKey: "github.com/t3tools/t3code",
+        canonicalKey: "github.com/pingdotgg/dex",
         locator: {
           source: "git-remote" as const,
           remoteName: "origin",
-          remoteUrl: "git@github.com:T3Tools/t3code.git",
+          remoteUrl: "git@github.com:pingdotgg/dex.git",
         },
-        displayName: "T3Tools/t3code",
+        displayName: "pingdotgg/dex",
         provider: "github",
-        owner: "T3Tools",
-        name: "t3code",
+        owner: "pingdotgg",
+        name: "dex",
       };
 
       yield* buildAppUnderTest({
@@ -2927,7 +3829,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             isRepo: true,
             hasOriginRemote: true,
             isDefaultBranch: false,
-            branch: "t3code/bootstrap-branch",
+            branch: "dex/bootstrap-branch",
             hasWorkingTreeChanges: false,
             workingTree: {
               files: [],
@@ -2943,7 +3845,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
           Effect.succeed({
             worktree: {
-              branch: "t3code/bootstrap-branch",
+              branch: "dex/bootstrap-branch",
               path: "/tmp/bootstrap-worktree",
             },
           }),
@@ -3012,7 +3914,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 prepareWorktree: {
                   projectCwd: "/tmp/project",
                   baseBranch: "main",
-                  branch: "t3code/bootstrap-branch",
+                  branch: "dex/bootstrap-branch",
                 },
                 runSetupScript: true,
               },
@@ -3035,7 +3937,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
           branch: "main",
-          newBranch: "t3code/bootstrap-branch",
+          newBranch: "dex/bootstrap-branch",
           path: null,
         });
         assert.deepEqual(runForThread.mock.calls[0]?.[0], {
@@ -3068,7 +3970,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
         Effect.succeed({
           worktree: {
-            branch: "t3code/bootstrap-branch",
+            branch: "dex/bootstrap-branch",
             path: "/tmp/bootstrap-worktree",
           },
         }),
@@ -3128,7 +4030,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "dex/bootstrap-branch",
               },
               runSetupScript: true,
             },
@@ -3161,7 +4063,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
         Effect.succeed({
           worktree: {
-            branch: "t3code/bootstrap-branch",
+            branch: "dex/bootstrap-branch",
             path: "/tmp/bootstrap-worktree",
           },
         }),
@@ -3244,7 +4146,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "dex/bootstrap-branch",
               },
               runSetupScript: true,
             },
@@ -3327,7 +4229,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               prepareWorktree: {
                 projectCwd: "/tmp/project",
                 baseBranch: "main",
-                branch: "t3code/bootstrap-branch",
+                branch: "dex/bootstrap-branch",
               },
               runSetupScript: false,
             },

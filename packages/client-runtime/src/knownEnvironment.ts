@@ -1,4 +1,4 @@
-import type { EnvironmentId, ExecutionEnvironmentDescriptor } from "@t3tools/contracts";
+import type { EnvironmentId, ExecutionEnvironmentDescriptor } from "@dex/contracts";
 
 export interface KnownEnvironmentConnectionTarget {
   readonly httpBaseUrl: string;

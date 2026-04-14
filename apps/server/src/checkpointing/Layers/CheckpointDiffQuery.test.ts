@@ -1,4 +1,4 @@
-import { CheckpointRef, ProjectId, ThreadId, TurnId } from "@t3tools/contracts";
+import { CheckpointRef, ProjectId, ThreadId, TurnId } from "@dex/contracts";
 import { Effect, Layer, Option } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -73,6 +73,7 @@ describe("CheckpointDiffQueryLive", () => {
           diffCheckpointsCalls.push({ fromCheckpointRef, toCheckpointRef, cwd });
           return "diff patch";
         }),
+      summarizeCheckpoints: () => Effect.succeed([]),
       deleteCheckpointRefs: () => Effect.void,
     };
 
@@ -132,6 +133,7 @@ describe("CheckpointDiffQueryLive", () => {
       hasCheckpointRef: () => Effect.succeed(true),
       restoreCheckpoint: () => Effect.succeed(true),
       diffCheckpoints: () => Effect.succeed(""),
+      summarizeCheckpoints: () => Effect.succeed([]),
       deleteCheckpointRefs: () => Effect.void,
     };
 

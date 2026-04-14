@@ -2,13 +2,15 @@ import type {
   AuthBootstrapInput,
   AuthBootstrapResult,
   AuthClientMetadata,
+  CompanionPairingPayload,
+  CreateCompanionPairingPayloadInput,
   AuthCreatePairingCredentialInput,
   AuthPairingCredentialResult,
   AuthRevokeClientSessionInput,
   AuthRevokePairingLinkInput,
   AuthSessionId,
   AuthSessionState,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 
 import {
   getPairingTokenFromUrl,
@@ -252,6 +254,39 @@ export async function createServerPairingCredential(
   }
 
   return (await response.json()) as AuthPairingCredentialResult;
+}
+
+export async function createServerCompanionPairingPayload(input: {
+  httpBaseUrl: string;
+  wsBaseUrl: string;
+  label?: string;
+}): Promise<CompanionPairingPayload> {
+  const payload: CreateCompanionPairingPayloadInput = {
+    target: {
+      httpBaseUrl: input.httpBaseUrl,
+      wsBaseUrl: input.wsBaseUrl,
+    },
+    ...(input.label?.trim() ? { label: input.label.trim() } : {}),
+  };
+  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/companion/pairing"), {
+    body: JSON.stringify(payload),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await readErrorMessage(
+        response,
+        `Failed to create companion pairing payload (${response.status}).`,
+      ),
+    );
+  }
+
+  return (await response.json()) as CompanionPairingPayload;
 }
 
 export async function listServerPairingLinks(): Promise<ReadonlyArray<ServerPairingLinkRecord>> {

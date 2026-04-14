@@ -1,14 +1,14 @@
 import { Debouncer } from "@tanstack/react-pacer";
 import { create } from "zustand";
 
-const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
+const PERSISTED_STATE_KEY = "dex:ui-state:v1";
 const LEGACY_PERSISTED_STATE_KEYS = [
-  "t3code:renderer-state:v8",
-  "t3code:renderer-state:v7",
-  "t3code:renderer-state:v6",
-  "t3code:renderer-state:v5",
-  "t3code:renderer-state:v4",
-  "t3code:renderer-state:v3",
+  "dex:renderer-state:v8",
+  "dex:renderer-state:v7",
+  "dex:renderer-state:v6",
+  "dex:renderer-state:v5",
+  "dex:renderer-state:v4",
+  "dex:renderer-state:v3",
   "codething:renderer-state:v4",
   "codething:renderer-state:v3",
   "codething:renderer-state:v2",
@@ -18,11 +18,13 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 interface PersistedUiState {
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
+  hiddenProjectKeys?: string[];
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
+  projectHiddenById: Record<string, boolean>;
   projectOrder: string[];
 }
 
@@ -45,6 +47,7 @@ export interface SyncThreadInput {
 
 const initialState: UiState = {
   projectExpandedById: {},
+  projectHiddenById: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
@@ -76,6 +79,7 @@ function readPersistedState(): UiState {
     hydratePersistedProjectState(parsed);
     return {
       ...initialState,
+      projectHiddenById: sanitizePersistedHiddenProjectKeys(parsed.hiddenProjectKeys),
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
@@ -83,6 +87,19 @@ function readPersistedState(): UiState {
   } catch {
     return initialState;
   }
+}
+
+function sanitizePersistedHiddenProjectKeys(
+  value: PersistedUiState["hiddenProjectKeys"],
+): Record<string, boolean> {
+  if (!Array.isArray(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    value
+      .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+      .map((entry) => [entry, true] as const),
+  );
 }
 
 function sanitizePersistedThreadChangedFilesExpanded(
@@ -143,6 +160,9 @@ function persistState(state: UiState): void {
       const cwd = currentProjectCwdById.get(projectId);
       return cwd ? [cwd] : [];
     });
+    const hiddenProjectKeys = Object.entries(state.projectHiddenById)
+      .filter(([, hidden]) => hidden)
+      .map(([projectId]) => projectId);
     const threadChangedFilesExpandedById = Object.fromEntries(
       Object.entries(state.threadChangedFilesExpandedById).flatMap(([threadId, turns]) => {
         const nextTurns = Object.fromEntries(
@@ -156,6 +176,7 @@ function persistState(state: UiState): void {
       JSON.stringify({
         expandedProjectCwds,
         projectOrderCwds,
+        hiddenProjectKeys,
         threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
     );
@@ -467,6 +488,54 @@ export function toggleProject(state: UiState, projectId: string): UiState {
   };
 }
 
+export function setProjectHidden(state: UiState, projectId: string, hidden: boolean): UiState {
+  if ((state.projectHiddenById[projectId] ?? false) === hidden) {
+    return state;
+  }
+  if (!hidden) {
+    const nextHiddenById = { ...state.projectHiddenById };
+    delete nextHiddenById[projectId];
+    return {
+      ...state,
+      projectHiddenById: nextHiddenById,
+    };
+  }
+  return {
+    ...state,
+    projectHiddenById: {
+      ...state.projectHiddenById,
+      [projectId]: true,
+    },
+  };
+}
+
+export function setProjectsExpanded(
+  state: UiState,
+  projectIds: readonly string[],
+  expanded: boolean,
+): UiState {
+  if (projectIds.length === 0) {
+    return state;
+  }
+
+  let changed = false;
+  const nextExpandedById = { ...state.projectExpandedById };
+  for (const projectId of projectIds) {
+    if ((nextExpandedById[projectId] ?? true) === expanded) {
+      continue;
+    }
+    nextExpandedById[projectId] = expanded;
+    changed = true;
+  }
+
+  return changed
+    ? {
+        ...state,
+        projectExpandedById: nextExpandedById,
+      }
+    : state;
+}
+
 export function setProjectExpanded(state: UiState, projectId: string, expanded: boolean): UiState {
   if ((state.projectExpandedById[projectId] ?? true) === expanded) {
     return state;
@@ -532,6 +601,8 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
+  setProjectsExpanded: (projectIds: readonly string[], expanded: boolean) => void;
+  setProjectHidden: (projectId: string, hidden: boolean) => void;
   reorderProjects: (
     draggedProjectIds: readonly string[],
     targetProjectIds: readonly string[],
@@ -552,6 +623,10 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),
   setProjectExpanded: (projectId, expanded) =>
     set((state) => setProjectExpanded(state, projectId, expanded)),
+  setProjectsExpanded: (projectIds, expanded) =>
+    set((state) => setProjectsExpanded(state, projectIds, expanded)),
+  setProjectHidden: (projectId, hidden) =>
+    set((state) => setProjectHidden(state, projectId, hidden)),
   reorderProjects: (draggedProjectIds, targetProjectIds) =>
     set((state) => reorderProjects(state, draggedProjectIds, targetProjectIds)),
 }));

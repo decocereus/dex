@@ -18,8 +18,8 @@ import {
 } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, type GitBranch } from "@t3tools/contracts";
-import { dedupeRemoteBranchesWithLocalMatches } from "@t3tools/shared/git";
+import { GitCommandError, type GitBranch } from "@dex/contracts";
+import { dedupeRemoteBranchesWithLocalMatches } from "@dex/shared/git";
 import { compactTraceAttributes } from "../../observability/Attributes.ts";
 import { gitCommandDuration, gitCommandsTotal, withMetrics } from "../../observability/Metrics.ts";
 import {
@@ -37,7 +37,7 @@ import {
   parseRemoteRefWithRemoteNames,
 } from "../remoteRefs.ts";
 import { ServerConfig } from "../../config.ts";
-import { decodeJsonResult } from "@t3tools/shared/schemaJson";
+import { decodeJsonResult } from "@dex/shared/schemaJson";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
@@ -135,6 +135,14 @@ function splitNullSeparatedPaths(input: string, truncated: boolean): string[] {
   }
 
   return parts.filter((value) => value.length > 0);
+}
+
+function isStatusRemoteRefreshTimeout(error: unknown): error is GitCommandError {
+  return (
+    Schema.is(GitCommandError)(error) &&
+    error.operation === "GitCore.fetchRemoteForStatus" &&
+    error.detail.toLowerCase().includes("timed out")
+  );
 }
 
 function chunkPathsForGitCheckIgnore(relativePaths: readonly string[]): string[][] {
@@ -442,7 +450,7 @@ const createTrace2Monitor = Effect.fn("createTrace2Monitor")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const traceFilePath = yield* fs.makeTempFileScoped({
-    prefix: `t3code-git-trace2-${process.pid}-`,
+    prefix: `dex-git-trace2-${process.pid}-`,
     suffix: ".json",
   });
   const hookStartByChildKey = new Map<string, { hookName: string; startedAtMs: number }>();
@@ -1339,11 +1347,37 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     },
   );
 
+  const refreshStatusUpstreamInBackground = Effect.fn("refreshStatusUpstreamInBackground")(
+    function* (cwd: string) {
+      const refreshEffect = refreshStatusUpstreamIfStale(cwd).pipe(
+        Effect.tapError((error) => {
+          if (isMissingGitCwdError(error)) {
+            return Effect.void;
+          }
+
+          const detail = error instanceof Error ? error.message : String(error);
+          if (isStatusRemoteRefreshTimeout(error)) {
+            return Effect.logDebug("git upstream refresh timed out", {
+              cwd,
+              detail,
+            });
+          }
+
+          return Effect.logDebug("git upstream refresh failed", {
+            cwd,
+            detail,
+          });
+        }),
+        Effect.catchIf(isMissingGitCwdError, () => Effect.void),
+        Effect.ignoreCause({ log: false }),
+      );
+
+      yield* refreshEffect.pipe(Effect.forkDetach({ startImmediately: true }));
+    },
+  );
+
   const statusDetails: GitCoreShape["statusDetails"] = Effect.fn("statusDetails")(function* (cwd) {
-    yield* refreshStatusUpstreamIfStale(cwd).pipe(
-      Effect.catchIf(isMissingGitCwdError, () => Effect.void),
-      Effect.ignoreCause({ log: true }),
-    );
+    yield* refreshStatusUpstreamInBackground(cwd);
     return yield* readStatusDetailsLocal(cwd);
   });
 

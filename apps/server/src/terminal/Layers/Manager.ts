@@ -5,8 +5,8 @@ import {
   type TerminalEvent,
   type TerminalSessionSnapshot,
   type TerminalSessionStatus,
-} from "@t3tools/contracts";
-import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
+} from "@dex/contracts";
+import { makeKeyedCoalescingWorker } from "@dex/shared/KeyedCoalescingWorker";
 import {
   Effect,
   Encoding,
@@ -610,7 +610,7 @@ function toSessionKey(threadId: string, terminalId: string): string {
 
 function shouldExcludeTerminalEnvKey(key: string): boolean {
   const normalizedKey = key.toUpperCase();
-  if (normalizedKey.startsWith("T3CODE_")) {
+  if (normalizedKey.startsWith("DEX_")) {
     return true;
   }
   if (normalizedKey.startsWith("VITE_")) {

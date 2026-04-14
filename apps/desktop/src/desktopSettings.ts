@@ -1,6 +1,6 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
-import type { DesktopServerExposureMode } from "@t3tools/contracts";
+import type { DesktopServerExposureMode } from "@dex/contracts";
 
 export interface DesktopSettings {
   readonly serverExposureMode: DesktopServerExposureMode;

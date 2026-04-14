@@ -2,11 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type {
-  OrchestrationReadModel,
-  ProviderRuntimeEvent,
-  ProviderSession,
-} from "@t3tools/contracts";
+import type { OrchestrationReadModel, ProviderRuntimeEvent, ProviderSession } from "@dex/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -18,7 +14,7 @@ import {
   type ServerSettings,
   ThreadId,
   TurnId,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -197,7 +193,7 @@ describe("ProviderRuntimeIngestion", () => {
   });
 
   async function createHarness(options?: { serverSettings?: Partial<ServerSettings> }) {
-    const workspaceRoot = makeTempDir("t3-provider-project-");
+    const workspaceRoot = makeTempDir("dex-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
     const orchestrationLayer = OrchestrationEngineLive.pipe(

@@ -1,5 +1,5 @@
 {
-  "name": "@t3tools/contracts",
+  "name": "@dex/contracts",
   "version": "0.0.17",
   "private": true,
   "files": [

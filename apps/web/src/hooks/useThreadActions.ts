@@ -1,5 +1,5 @@
-import { parseScopedThreadKey, scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime";
-import { type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import { parseScopedThreadKey, scopeProjectRef, scopeThreadRef } from "@dex/client-runtime";
+import { type ScopedThreadRef, ThreadId } from "@dex/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useCallback, useRef } from "react";
@@ -96,7 +96,13 @@ export function useThreadActions() {
   }, []);
 
   const deleteThread = useCallback(
-    async (target: ScopedThreadRef, opts: { deletedThreadKeys?: ReadonlySet<string> } = {}) => {
+    async (
+      target: ScopedThreadRef,
+      opts: {
+        deletedThreadKeys?: ReadonlySet<string>;
+        skipWorktreeCleanup?: boolean;
+      } = {},
+    ) => {
       const api = readEnvironmentApi(target.environmentId);
       if (!api) return;
       const resolved = resolveThreadTarget(target);
@@ -128,7 +134,10 @@ export function useThreadActions() {
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
         : null;
-      const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
+      const canDeleteWorktree =
+        opts.skipWorktreeCleanup !== true &&
+        orphanedWorktreePath !== null &&
+        threadProject !== undefined;
       const localApi = readLocalApi();
       const shouldDeleteWorktree =
         canDeleteWorktree &&

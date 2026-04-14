@@ -5,7 +5,7 @@ import {
   type AuthPairingLink,
   type DesktopServerExposureState,
   type EnvironmentId,
-} from "@t3tools/contracts";
+} from "@dex/contracts";
 import { DateTime } from "effect";
 
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -47,6 +47,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
 import {
+  createServerCompanionPairingPayload,
   createServerPairingCredential,
   fetchSessionState,
   revokeOtherServerClientSessions,
@@ -252,6 +253,12 @@ function resolveDesktopPairingUrl(endpointUrl: string, credential: string): stri
 function resolveCurrentOriginPairingUrl(credential: string): string {
   const url = new URL("/pair", window.location.href);
   return setPairingTokenOnUrl(url, credential).toString();
+}
+
+function deriveCompanionWsBaseUrl(httpBaseUrl: string): string {
+  const url = new URL(httpBaseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }
 
 type PairingLinkListRowProps = {
@@ -518,6 +525,128 @@ type AuthorizedClientsHeaderActionProps = {
   onRevokeOtherClients: () => void;
 };
 
+type PairIPhoneActionProps = {
+  endpointUrl: string | null | undefined;
+  disabled?: boolean;
+  size?: "sm" | "xs";
+};
+
+const PairIPhoneAction = memo(function PairIPhoneAction({
+  endpointUrl,
+  disabled = false,
+  size = "sm",
+}: PairIPhoneActionProps) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [isCreatingCompanionPayload, setIsCreatingCompanionPayload] = useState(false);
+  const [companionPayloadText, setCompanionPayloadText] = useState("");
+
+  const handleCreateCompanionPayload = useCallback(async () => {
+    if (!endpointUrl) {
+      toastManager.add({
+        type: "error",
+        title: "Phone access is off",
+        description: "Turn on phone access, then try again.",
+      });
+      return;
+    }
+    setIsCreatingCompanionPayload(true);
+    try {
+      console.info("[connections] creating iPhone pairing payload", { endpointUrl });
+      const payload = await createServerCompanionPairingPayload({
+        httpBaseUrl: endpointUrl,
+        wsBaseUrl: deriveCompanionWsBaseUrl(endpointUrl),
+        label: "iPhone",
+      });
+      setCompanionPayloadText(JSON.stringify(payload));
+      console.info("[connections] iPhone pairing payload ready", {
+        endpointUrl,
+        environmentId: payload.environment.environmentId,
+        label: payload.environment.label,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to create iPhone pairing payload.";
+      console.error("[connections] failed to create iPhone pairing payload", {
+        endpointUrl,
+        message,
+      });
+      toastManager.add({
+        type: "error",
+        title: "Could not create iPhone QR",
+        description: message,
+      });
+    } finally {
+      setIsCreatingCompanionPayload(false);
+    }
+  }, [endpointUrl]);
+
+  useEffect(() => {
+    if (!dialogOpen || companionPayloadText || isCreatingCompanionPayload) {
+      return;
+    }
+    void handleCreateCompanionPayload();
+  }, [companionPayloadText, dialogOpen, handleCreateCompanionPayload, isCreatingCompanionPayload]);
+
+  return (
+    <Dialog
+      open={dialogOpen}
+      onOpenChange={(open) => {
+        setDialogOpen(open);
+        if (!open) {
+          setCompanionPayloadText("");
+        }
+      }}
+    >
+      <DialogTrigger
+        render={
+          <Button size={size} variant="default" disabled={disabled}>
+            <QrCodeIcon className="size-3" />
+            Pair iPhone
+          </Button>
+        }
+      />
+      <DialogPopup className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Connect iPhone</DialogTitle>
+          <DialogDescription>Scan this in the iPhone app.</DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          {companionPayloadText ? (
+            <div className="flex justify-center rounded-lg border border-border/60 bg-muted/20 p-4">
+              <QRCodeSvg
+                value={companionPayloadText}
+                size={200}
+                level="M"
+                marginSize={2}
+                title="iPhone pairing QR"
+              />
+            </div>
+          ) : (
+            <div className="flex min-h-56 items-center justify-center rounded-lg border border-border/60 bg-muted/20 px-4 text-sm text-muted-foreground">
+              {isCreatingCompanionPayload
+                ? "Preparing QR…"
+                : endpointUrl
+                  ? "Preparing QR…"
+                  : "Turn on phone access first."}
+            </div>
+          )}
+        </DialogPanel>
+        <DialogFooter variant="bare">
+          <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            Close
+          </Button>
+          <Button
+            disabled={isCreatingCompanionPayload || !endpointUrl}
+            onClick={() => void handleCreateCompanionPayload()}
+          >
+            {isCreatingCompanionPayload ? "Refreshing…" : "Refresh QR"}
+          </Button>
+        </DialogFooter>
+      </DialogPopup>
+    </Dialog>
+  );
+});
+
 const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderAction({
   clientSessions,
   isRevokingOtherClients,
@@ -578,8 +707,8 @@ const AuthorizedClientsHeaderAction = memo(function AuthorizedClientsHeaderActio
           <DialogHeader>
             <DialogTitle>Create pairing link</DialogTitle>
             <DialogDescription>
-              Generate a one-time link that another device can use to pair with this backend as an
-              authorized client.
+              Generate a one-time link that another browser or client can use to pair with this
+              backend as an authorized client.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
@@ -817,17 +946,25 @@ export function ConnectionsSettings() {
       setIsUpdatingDesktopServerExposure(true);
       setDesktopServerExposureError(null);
       try {
+        console.info("[connections] updating phone access", {
+          nextMode: checked ? "network-accessible" : "local-only",
+        });
         const nextState = await desktopBridge.setServerExposureMode(
           checked ? "network-accessible" : "local-only",
         );
         setDesktopServerExposureState(nextState);
         setPendingDesktopServerExposureMode(null);
         setIsUpdatingDesktopServerExposure(false);
+        console.info("[connections] phone access updated", {
+          mode: nextState.mode,
+          endpointUrl: nextState.endpointUrl ?? null,
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Failed to update network exposure.";
         setPendingDesktopServerExposureMode(null);
         setDesktopServerExposureError(message);
+        console.error("[connections] failed to update phone access", { message });
         toastManager.add({
           type: "error",
           title: "Could not update network access",
@@ -1111,119 +1248,131 @@ export function ConnectionsSettings() {
     () => desktopPairingLinks.filter((pairingLink) => pairingLink.role === "client"),
     [desktopPairingLinks],
   );
+  const phonePairingEndpointUrl = useMemo(() => {
+    if (desktopServerExposureState?.endpointUrl) {
+      return desktopServerExposureState.endpointUrl;
+    }
+    if (currentAuthPolicy === "remote-reachable" && typeof window !== "undefined") {
+      return window.location.origin;
+    }
+    return null;
+  }, [currentAuthPolicy, desktopServerExposureState?.endpointUrl]);
+  const connectedDesktopPhoneClients = useMemo(
+    () => desktopClientSessions.filter((clientSession) => clientSession.connected),
+    [desktopClientSessions],
+  );
   return (
     <SettingsPageContainer>
       {canManageLocalBackend ? (
         <>
-          <SettingsSection title="Manage local backend">
+          <SettingsSection title="Phone">
             {desktopBridge ? (
               <SettingsRow
-                title="Network access"
+                title="Connect iPhone"
                 description={
-                  desktopServerExposureState?.endpointUrl
-                    ? `Reachable at ${desktopServerExposureState.endpointUrl}`
-                    : desktopServerExposureState?.mode === "network-accessible"
-                      ? desktopServerExposureState.advertisedHost
-                        ? `Exposed on all interfaces. Pairing links use ${desktopServerExposureState.advertisedHost}.`
-                        : "Exposed on all interfaces."
+                  connectedDesktopPhoneClients.length > 0
+                    ? connectedDesktopPhoneClients.length === 1
+                      ? "1 iPhone is connected and ready."
+                      : `${connectedDesktopPhoneClients.length} iPhones are connected and ready.`
+                    : phonePairingEndpointUrl
+                      ? "Open the iPhone app and scan the QR."
                       : desktopServerExposureState
-                        ? "Limited to this machine."
-                        : "Loading…"
+                        ? "Turn on phone access, then scan the QR in the iPhone app."
+                        : "Loading phone access…"
                 }
                 status={
                   desktopServerExposureError ? (
                     <span className="block text-destructive">{desktopServerExposureError}</span>
+                  ) : connectedDesktopPhoneClients.length > 0 ? (
+                    <span className="block text-success">
+                      {connectedDesktopPhoneClients.length === 1
+                        ? "iPhone connected successfully."
+                        : `${connectedDesktopPhoneClients.length} iPhones connected successfully.`}
+                    </span>
                   ) : null
                 }
                 control={
-                  <AlertDialog
-                    open={pendingDesktopServerExposureMode !== null}
-                    onOpenChange={(open) => {
-                      if (isUpdatingDesktopServerExposure) return;
-                      if (!open) setPendingDesktopServerExposureMode(null);
-                    }}
-                  >
-                    <Switch
-                      checked={desktopServerExposureState?.mode === "network-accessible"}
-                      disabled={!desktopServerExposureState || isUpdatingDesktopServerExposure}
-                      onCheckedChange={(checked) => {
-                        setPendingDesktopServerExposureMode(
-                          checked ? "network-accessible" : "local-only",
-                        );
+                  <div className="flex items-center gap-2">
+                    <AlertDialog
+                      open={pendingDesktopServerExposureMode !== null}
+                      onOpenChange={(open) => {
+                        if (isUpdatingDesktopServerExposure) return;
+                        if (!open) setPendingDesktopServerExposureMode(null);
                       }}
-                      aria-label="Enable network access"
-                    />
-                    <AlertDialogPopup>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "Enable network access?"
-                            : "Disable network access?"}
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {pendingDesktopServerExposureMode === "network-accessible"
-                            ? "T3 Code will restart to expose this environment over the network."
-                            : "T3 Code will restart and limit this environment back to this machine."}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogClose
-                          disabled={isUpdatingDesktopServerExposure}
-                          render={
-                            <Button variant="outline" disabled={isUpdatingDesktopServerExposure} />
-                          }
-                        >
-                          Cancel
-                        </AlertDialogClose>
-                        <Button
-                          onClick={handleConfirmDesktopServerExposureChange}
-                          disabled={
-                            pendingDesktopServerExposureMode === null ||
-                            isUpdatingDesktopServerExposure
-                          }
-                        >
-                          {isUpdatingDesktopServerExposure ? (
-                            <>
-                              <Spinner className="size-3.5" />
-                              Restarting…
-                            </>
-                          ) : pendingDesktopServerExposureMode === "network-accessible" ? (
-                            "Restart and enable"
-                          ) : (
-                            "Restart and disable"
-                          )}
-                        </Button>
-                      </AlertDialogFooter>
-                    </AlertDialogPopup>
-                  </AlertDialog>
+                    >
+                      <Switch
+                        checked={desktopServerExposureState?.mode === "network-accessible"}
+                        disabled={!desktopServerExposureState || isUpdatingDesktopServerExposure}
+                        onCheckedChange={(checked) => {
+                          setPendingDesktopServerExposureMode(
+                            checked ? "network-accessible" : "local-only",
+                          );
+                        }}
+                        aria-label="Enable phone access"
+                      />
+                      <AlertDialogPopup>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            {pendingDesktopServerExposureMode === "network-accessible"
+                              ? "Turn on phone access?"
+                              : "Turn off phone access?"}
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {pendingDesktopServerExposureMode === "network-accessible"
+                              ? "dex will restart so your iPhone can reach this Mac."
+                              : "dex will restart and stop accepting phone connections."}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogClose
+                            disabled={isUpdatingDesktopServerExposure}
+                            render={
+                              <Button
+                                variant="outline"
+                                disabled={isUpdatingDesktopServerExposure}
+                              />
+                            }
+                          >
+                            Cancel
+                          </AlertDialogClose>
+                          <Button
+                            onClick={handleConfirmDesktopServerExposureChange}
+                            disabled={
+                              pendingDesktopServerExposureMode === null ||
+                              isUpdatingDesktopServerExposure
+                            }
+                          >
+                            {isUpdatingDesktopServerExposure ? (
+                              <>
+                                <Spinner className="size-3.5" />
+                                Restarting…
+                              </>
+                            ) : pendingDesktopServerExposureMode === "network-accessible" ? (
+                              "Restart and enable"
+                            ) : (
+                              "Restart and disable"
+                            )}
+                          </Button>
+                        </AlertDialogFooter>
+                      </AlertDialogPopup>
+                    </AlertDialog>
+                    <PairIPhoneAction endpointUrl={phonePairingEndpointUrl} />
+                  </div>
                 }
               />
             ) : (
               <SettingsRow
-                title="Network access"
+                title="Connect iPhone"
                 description={
                   currentAuthPolicy === "remote-reachable"
-                    ? "This backend is already configured for remote access. Network exposure changes must be made where the server is launched."
-                    : "This backend is only reachable on this machine. Restart it with a non-loopback host to enable remote pairing."
+                    ? "Open the iPhone app and scan the QR."
+                    : "This backend is only reachable on this machine."
                 }
                 control={
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span className="inline-flex">
-                          <Switch
-                            checked={isLocalBackendNetworkAccessible}
-                            disabled
-                            aria-label="Enable network access"
-                          />
-                        </span>
-                      }
-                    />
-                    <TooltipPopup side="top">
-                      Network exposure changes restart the backend and must be controlled where the
-                      server process is launched.
-                    </TooltipPopup>
-                  </Tooltip>
+                  <PairIPhoneAction
+                    endpointUrl={phonePairingEndpointUrl}
+                    disabled={!phonePairingEndpointUrl}
+                  />
                 }
               />
             )}

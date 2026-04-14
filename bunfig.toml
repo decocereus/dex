@@ -1,0 +1,4 @@
+[install]
+# This repo intentionally tracks fresh dependency releases, including Effect betas.
+# Override the user's global minimum release age only for this workspace.
+minimumReleaseAge = 0

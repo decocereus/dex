@@ -10,12 +10,12 @@ import { CheckpointStoreLive } from "./CheckpointStore.ts";
 import { CheckpointStore } from "../Services/CheckpointStore.ts";
 import { GitCoreLive } from "../../git/Layers/GitCore.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
-import { GitCommandError } from "@t3tools/contracts";
+import { GitCommandError } from "@dex/contracts";
 import { ServerConfig } from "../../config.ts";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId } from "@dex/contracts";
 
 const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {
-  prefix: "t3-checkpoint-store-test-",
+  prefix: "dex-checkpoint-store-test-",
 });
 const GitCoreTestLayer = GitCoreLive.pipe(
   Layer.provide(ServerConfigLayer),
@@ -116,6 +116,49 @@ it.layer(TestLayer)("CheckpointStoreLive", (it) => {
         expect(diff).toContain("diff --git");
         expect(diff).not.toContain("[truncated]");
         expect(diff).toContain("+line 04999");
+      }),
+    );
+  });
+
+  describe("summarizeCheckpoints", () => {
+    it.effect("returns file summaries without requiring full patch output", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const checkpointStore = yield* CheckpointStore;
+        const threadId = ThreadId.make("thread-checkpoint-summary");
+        const fromCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
+        const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
+
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: fromCheckpointRef,
+        });
+        yield* writeTextFile(path.join(tmp, "README.md"), "# updated\nmore text\n");
+        yield* writeTextFile(path.join(tmp, "notes.txt"), "hello\nworld\n");
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef: toCheckpointRef,
+        });
+
+        const summary = yield* checkpointStore.summarizeCheckpoints({
+          cwd: tmp,
+          fromCheckpointRef,
+          toCheckpointRef,
+        });
+
+        expect(summary).toEqual([
+          {
+            path: "notes.txt",
+            additions: 2,
+            deletions: 0,
+          },
+          {
+            path: "README.md",
+            additions: 2,
+            deletions: 1,
+          },
+        ]);
       }),
     );
   });

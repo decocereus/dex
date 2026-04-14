@@ -1,4 +1,4 @@
-import type { MessageId, ThreadId, TurnId } from "@t3tools/contracts";
+import type { MessageId, ThreadId, TurnId } from "@dex/contracts";
 import type { EnvironmentState } from "./store";
 import type {
   ChatMessage,

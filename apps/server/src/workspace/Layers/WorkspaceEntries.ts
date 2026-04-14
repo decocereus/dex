@@ -3,13 +3,13 @@ import type { Dirent } from "node:fs";
 
 import { Cache, Duration, Effect, Exit, Layer, Option, Path } from "effect";
 
-import { type ProjectEntry } from "@t3tools/contracts";
+import { type ProjectEntry } from "@dex/contracts";
 import {
   insertRankedSearchResult,
   normalizeSearchQuery,
   scoreQueryMatch,
   type RankedSearchResult,
-} from "@t3tools/shared/searchRanking";
+} from "@dex/shared/searchRanking";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
 import {

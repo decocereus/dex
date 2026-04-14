@@ -1,14 +1,14 @@
 {
-  "name": "t3",
+  "name": "dex",
   "version": "0.0.17",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pingdotgg/t3code",
+    "url": "https://github.com/pingdotgg/dex",
     "directory": "apps/server"
   },
   "bin": {
-    "t3": "./dist/bin.mjs"
+    "dex": "./dist/bin.mjs"
   },
   "files": [
     "dist"
@@ -33,11 +33,11 @@
     "open": "^10.1.0"
   },
   "devDependencies": {
+    "@dex/contracts": "workspace:*",
+    "@dex/shared": "workspace:*",
+    "@dex/web": "workspace:*",
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
-    "@t3tools/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "tsdown": "catalog:",

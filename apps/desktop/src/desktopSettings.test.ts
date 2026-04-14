@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 function makeSettingsPath() {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "t3-desktop-settings-test-"));
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "dex-desktop-settings-test-"));
   tempDirectories.push(directory);
   return path.join(directory, "desktop-settings.json");
 }
