@@ -31,7 +31,7 @@ final class TipJarStore {
     ]
     private(set) var purchaseState: PurchaseState = .idle
     private(set) var isLoading = true
-    private nonisolated(unsafe) var updatesTask: Task<Void, Never>?
+    @ObservationIgnored private var updatesTask: Task<Void, Never>?
 
     static let shared = TipJarStore()
 

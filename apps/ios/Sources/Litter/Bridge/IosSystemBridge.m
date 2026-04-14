@@ -93,6 +93,7 @@ static NSString *codex_sandbox_root(void) {
     return docs;
 }
 
+#if !TARGET_OS_SIMULATOR
 static FILE *codex_ios_command_stdin(void) {
     static FILE *nullInput = NULL;
     if (nullInput == NULL) {
@@ -105,6 +106,7 @@ static pthread_mutex_t *codex_ios_exec_mutex(void) {
     static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     return &mutex;
 }
+#endif
 
 static NSString *codex_ios_decode_wrapped_shell_argument(NSString *value) {
     NSString *trimmed = [value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -204,6 +206,7 @@ static NSString *codex_ios_host_shell_script(NSString *command) {
     return trimmed;
 }
 
+#if !TARGET_OS_SIMULATOR
 static const char *codex_ios_session_name(void) {
     static __thread char *sessionName = NULL;
     if (sessionName == NULL) {
@@ -212,10 +215,6 @@ static const char *codex_ios_session_name(void) {
         sessionName = strdup(buffer);
     }
     return sessionName;
-}
-
-static NSString *codex_ios_single_quote(NSString *value) {
-    return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"]];
 }
 
 static void codex_ios_prepare_session(const char *cwd) {
@@ -237,65 +236,7 @@ static void codex_ios_prepare_session(const char *cwd) {
     }
     ios_setDirectoryURL([NSURL fileURLWithPath:cwdString isDirectory:YES]);
 }
-
-static int codex_ios_popen_run(const char *cmd, const char *cwd, char **output, size_t *output_len) {
-    NSLog(@"[ios-popen] run cmd='%s' cwd='%s'", cmd, cwd ? cwd : "(null)");
-
-    codex_ios_prepare_session(cwd);
-
-    bool savedJoin = joinMainThread;
-    joinMainThread = false;
-    FILE *rf = ios_popen(cmd, "r");
-    pid_t pid = ios_currentPid();
-    joinMainThread = savedJoin;
-
-    if (rf == NULL) {
-        NSLog(@"[ios-popen] ios_popen FAILED for cmd='%s'", cmd);
-        return -1;
-    }
-
-    NSMutableData *data = [NSMutableData data];
-    char chunk[4096];
-    while (!feof(rf)) {
-        size_t count = fread(chunk, 1, sizeof(chunk), rf);
-        if (count > 0) {
-            [data appendBytes:chunk length:count];
-        }
-        if (count == 0 && ferror(rf)) {
-            NSLog(@"[ios-popen] fread FAILED errno=%d (%s)", errno, strerror(errno));
-            break;
-        }
-    }
-    fclose(rf);
-
-    if (pid > 0) {
-        ios_waitpid(pid);
-    }
-    int code = ios_getCommandStatus();
-
-    size_t total = data.length;
-    char *buf = NULL;
-    if (total > 0) {
-        buf = malloc(total + 1);
-        if (buf != NULL) {
-            memcpy(buf, data.bytes, total);
-        } else {
-            total = 0;
-        }
-    }
-
-    NSLog(@"[ios-popen] code=%d output_len=%zu for cmd='%s'", code, total, cmd);
-
-    if (buf && total > 0) {
-        buf[total] = '\0';
-        *output = buf;
-        *output_len = total;
-    } else {
-        free(buf);
-    }
-
-    return code;
-}
+#endif
 
 static int codex_ios_host_spawn_run(const char *cmd, const char *cwd, char **output, size_t *output_len) {
     NSLog(@"[ios-spawn] run cmd='%s' cwd='%s'", cmd, cwd ? cwd : "(null)");
@@ -438,8 +379,7 @@ int codex_ios_system_run(const char *cmd, const char *cwd, char **output, size_t
         NSLog(@"[ios-system] normalized cmd from '%s' to '%s'", cmd, runCmd);
     }
     return codex_ios_host_spawn_run(runCmd, cwd, output, output_len);
-#endif
-
+#else
     int code = -1;
     pthread_mutex_lock(codex_ios_exec_mutex());
     if (cmd != NULL && strcmp(cmd, runCmd) != 0) {
@@ -497,4 +437,5 @@ int codex_ios_system_run(const char *cmd, const char *cwd, char **output, size_t
     }
     pthread_mutex_unlock(codex_ios_exec_mutex());
     return code;
+#endif
 }

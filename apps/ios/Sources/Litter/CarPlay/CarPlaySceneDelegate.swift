@@ -25,7 +25,7 @@ final class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegat
             vm.buildVoiceTab(),
             vm.buildSessionsTab()
         ])
-        interfaceController.setRootTemplate(tabBar, animated: false)
+        interfaceController.setRootTemplate(tabBar, animated: false, completion: nil)
         vm.startObserving()
     }
 

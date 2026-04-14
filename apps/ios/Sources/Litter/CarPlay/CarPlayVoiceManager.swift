@@ -183,14 +183,14 @@ final class CarPlayVoiceManager {
     private func pushActiveSession(_ session: VoiceSessionState) {
         let template = buildInfoTemplate(session)
         isShowingActiveSession = true
-        interfaceController?.pushTemplate(template, animated: true)
+        interfaceController?.pushTemplate(template, animated: true, completion: nil)
     }
 
     private func refreshActiveSession(_ session: VoiceSessionState) {
         let template = buildInfoTemplate(session)
         // CPInformationTemplate items aren't mutable, so pop and push
-        interfaceController?.popTemplate(animated: false)
-        interfaceController?.pushTemplate(template, animated: false)
+        interfaceController?.popTemplate(animated: false, completion: nil)
+        interfaceController?.pushTemplate(template, animated: false, completion: nil)
     }
 
     private func showError(_ message: String) {
@@ -199,6 +199,6 @@ final class CarPlayVoiceManager {
             titleVariants: [message],
             actions: [action]
         )
-        interfaceController?.presentTemplate(alert, animated: true)
+        interfaceController?.presentTemplate(alert, animated: true, completion: nil)
     }
 }

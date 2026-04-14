@@ -80,26 +80,35 @@ final class VideoWallpaperProcessor {
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
 
-        await exportSession.export()
-
-        switch exportSession.status {
-        case .completed:
-            // Validate file size
-            let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
-            let fileSize = attrs[.size] as? Int64 ?? 0
-            if fileSize > maxFileSize {
-                try? FileManager.default.removeItem(at: destination)
-                throw ProcessorError.fileTooLarge(fileSize)
+        if #available(iOS 18.0, *) {
+            do {
+                try await exportSession.export(to: destination, as: .mp4)
+            } catch {
+                throw ProcessorError.transcodeFailed(error.localizedDescription)
             }
-            return duration
-        case .failed:
-            let message = exportSession.error?.localizedDescription ?? "unknown error"
-            throw ProcessorError.transcodeFailed(message)
-        case .cancelled:
-            throw ProcessorError.transcodeFailed("export cancelled")
-        default:
-            throw ProcessorError.transcodeFailed("unexpected status: \(exportSession.status.rawValue)")
+        } else {
+            await exportSession.export()
+
+            switch exportSession.status {
+            case .completed:
+                break
+            case .failed:
+                let message = exportSession.error?.localizedDescription ?? "unknown error"
+                throw ProcessorError.transcodeFailed(message)
+            case .cancelled:
+                throw ProcessorError.transcodeFailed("export cancelled")
+            default:
+                throw ProcessorError.transcodeFailed("unexpected status: \(exportSession.status.rawValue)")
+            }
         }
+
+        let attrs = try FileManager.default.attributesOfItem(atPath: destination.path)
+        let fileSize = attrs[.size] as? Int64 ?? 0
+        if fileSize > maxFileSize {
+            try? FileManager.default.removeItem(at: destination)
+            throw ProcessorError.fileTooLarge(fileSize)
+        }
+        return duration
     }
 
     /// Download a remote video URL to a temporary file, then transcode to the destination.
