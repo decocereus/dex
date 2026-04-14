@@ -732,6 +732,11 @@ private struct HomeNavigationView: View {
             if DexCompanionRouting.environmentId(fromServerId: defaultServerId) != nil,
                let server = homeDashboardModel.connectedServers.first(where: { $0.id == defaultServerId }) {
                 let cwd = server.workspaceRoot ?? ""
+                LLog.info("session-launch", "starting paired dex session from home", fields: [
+                    "serverId": defaultServerId,
+                    "cwd": cwd,
+                    "workspaceRoot": server.workspaceRoot ?? "",
+                ])
                 Task { await startNewSession(serverId: defaultServerId, cwd: cwd) }
                 return
             }
@@ -861,6 +866,12 @@ private struct HomeNavigationView: View {
             do {
                 let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 let selectedEffort = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
+                LLog.info("session-launch", "creating paired dex session", fields: [
+                    "serverId": serverId,
+                    "cwd": cwd,
+                    "model": selectedModel,
+                    "reasoningEffort": selectedEffort,
+                ])
                 guard let key = try await appModel.startDexThread(
                     serverId: serverId,
                     cwd: cwd,
@@ -873,9 +884,17 @@ private struct HomeNavigationView: View {
                     actionErrorMessage = "Failed to create session."
                     return
                 }
+                LLog.info("session-launch", "paired dex session created", fields: [
+                    "serverId": serverId,
+                    "threadId": key.threadId,
+                ])
                 appModel.activateThread(key)
                 openConversation(key)
             } catch {
+                LLog.error("session-launch", "paired dex session creation failed", error: error, fields: [
+                    "serverId": serverId,
+                    "cwd": cwd,
+                ])
                 actionErrorMessage = error.localizedDescription
             }
             return

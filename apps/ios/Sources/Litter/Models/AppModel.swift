@@ -1221,11 +1221,22 @@ final class AppModel {
     ) async throws -> [FileSearchResult] {
         if let dexClient = dexClient(for: serverId) {
             let cwd = params.roots.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return try await dexClient.searchNativeFiles(
+            LLog.info("companion", "searching dex files", fields: [
+                "serverId": serverId,
+                "cwd": cwd.isEmpty ? "/" : cwd,
+                "query": params.query,
+            ])
+            let results = try await dexClient.searchNativeFiles(
                 cwd: cwd.isEmpty ? "/" : cwd,
                 query: params.query,
                 limit: 50
             )
+            LLog.info("companion", "dex file search completed", fields: [
+                "serverId": serverId,
+                "resultCount": results.count,
+                "query": params.query,
+            ])
+            return results
         }
         return try await client.searchFiles(serverId: serverId, params: params)
     }
@@ -1236,10 +1247,21 @@ final class AppModel {
     ) async throws -> [SkillMetadata] {
         if let dexClient = dexClient(for: serverId) {
             let cwd = params.cwds.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return try await dexClient.listNativeSkills(
+            LLog.info("companion", "loading dex skills", fields: [
+                "serverId": serverId,
+                "cwd": cwd.isEmpty ? "/" : cwd,
+                "forceReload": params.forceReload,
+            ])
+            let skills = try await dexClient.listNativeSkills(
                 cwd: cwd.isEmpty ? "/" : cwd,
                 forceReload: params.forceReload
             )
+            LLog.info("companion", "dex skills loaded", fields: [
+                "serverId": serverId,
+                "skillCount": skills.count,
+                "cwd": cwd.isEmpty ? "/" : cwd,
+            ])
+            return skills
         }
         return try await client.listSkills(serverId: serverId, params: params)
     }
@@ -1419,6 +1441,9 @@ final class AppModel {
         browserSession: DexCompanionBrowserSession,
         nativeSnapshot: DexNativeThreadSnapshot
     ) {
+        let previousThread = dexThreadSnapshots[key]
+        let previousApprovals = dexPendingApprovalsByThread[key] ?? []
+        let previousUserInputs = dexPendingUserInputsByThread[key] ?? []
         let overlay = DexNativeThreadAdapter.makeOverlay(
             serverId: key.serverId,
             browserSession: browserSession,
@@ -1437,10 +1462,42 @@ final class AppModel {
         dexPendingApprovalsByThread[key] = overlay.pendingApprovals
         dexPendingUserInputsByThread[key] = overlay.pendingUserInputs
         snapshotRevision &+= 1
+
+        let previousMessageCount = previousThread?.hydratedConversationItems.count ?? 0
+        let nextMessageCount = overlay.threadSnapshot.hydratedConversationItems.count
+        let previousStatus = previousThread.map { String(describing: $0.info.status) } ?? "none"
+        let nextStatus = String(describing: overlay.threadSnapshot.info.status)
+        let previousActiveTurnId = previousThread?.activeTurnId ?? "none"
+        let nextActiveTurnId = overlay.threadSnapshot.activeTurnId ?? "none"
+
+        if previousMessageCount != nextMessageCount ||
+            previousStatus != nextStatus ||
+            previousActiveTurnId != nextActiveTurnId ||
+            previousApprovals.count != overlay.pendingApprovals.count ||
+            previousUserInputs.count != overlay.pendingUserInputs.count {
+            LLog.trace("companion", "applied dex thread snapshot", fields: [
+                "serverId": key.serverId,
+                "threadId": key.threadId,
+                "messageCount": nextMessageCount,
+                "messageCountDelta": nextMessageCount - previousMessageCount,
+                "status": nextStatus,
+                "previousStatus": previousStatus,
+                "activeTurnId": nextActiveTurnId,
+                "previousActiveTurnId": previousActiveTurnId,
+                "pendingApprovalCount": overlay.pendingApprovals.count,
+                "pendingUserInputCount": overlay.pendingUserInputs.count,
+            ])
+        }
     }
 
     private func startDexThreadStreamIfNeeded(for key: ThreadKey?) {
         guard let key, DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil else {
+            if let previousKey = dexThreadStreamKey {
+                LLog.info("companion", "stopping dex thread stream", fields: [
+                    "serverId": previousKey.serverId,
+                    "threadId": previousKey.threadId,
+                ])
+            }
             dexThreadStreamTask?.cancel()
             dexThreadStreamTask = nil
             dexThreadStreamKey = nil
@@ -1460,6 +1517,13 @@ final class AppModel {
 
             while !Task.isCancelled {
                 do {
+                    await MainActor.run {
+                        LLog.info("companion", "starting dex thread stream", fields: [
+                            "serverId": key.serverId,
+                            "threadId": key.threadId,
+                            "httpBaseUrl": browserSession.httpBaseUrl,
+                        ])
+                    }
                     try await client.streamNativeThreadSnapshots(threadId: key.threadId) { snapshot in
                         guard !Task.isCancelled else { return }
                         await MainActor.run {
@@ -1469,6 +1533,12 @@ final class AppModel {
                                 nativeSnapshot: snapshot
                             )
                         }
+                    }
+                    await MainActor.run {
+                        LLog.info("companion", "dex thread stream completed", fields: [
+                            "serverId": key.serverId,
+                            "threadId": key.threadId,
+                        ])
                     }
                     break
                 } catch {
@@ -1484,6 +1554,18 @@ final class AppModel {
                     if !shouldSilence {
                         await MainActor.run {
                             self.lastError = error.localizedDescription
+                            LLog.error("companion", "dex thread stream failed", error: error, fields: [
+                                "serverId": key.serverId,
+                                "threadId": key.threadId,
+                            ])
+                        }
+                    } else {
+                        await MainActor.run {
+                            LLog.info("companion", "dex thread stream reconnecting", fields: [
+                                "serverId": key.serverId,
+                                "threadId": key.threadId,
+                                "errorCode": nsError.code,
+                            ])
                         }
                     }
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -1564,6 +1646,18 @@ final class AppModel {
             interactionMode: interactionMode
         )
 
+        LLog.info("companion", "starting dex turn", fields: [
+            "serverId": key.serverId,
+            "threadId": key.threadId,
+            "textLength": text.count,
+            "attachmentCount": attachments.count,
+            "runtimeMode": runtimeMode,
+            "interactionMode": interactionMode,
+            "model": (modelSelection?["model"] as? String) ?? "",
+            "reasoningEffort": payload.effort?.wireValue ?? "",
+            "serviceTier": payload.serviceTier == .fast ? "fast" : payload.serviceTier == .flex ? "flex" : "",
+        ])
+
         var command: [String: Any] = [
             "type": "thread.turn.start",
             "commandId": UUID().uuidString,
@@ -1583,6 +1677,10 @@ final class AppModel {
         }
         _ = try await client.dispatchCommand(command)
         try await refreshDexThreadSnapshot(key: key)
+        LLog.info("companion", "dex turn started", fields: [
+            "serverId": key.serverId,
+            "threadId": key.threadId,
+        ])
         return true
     }
 
@@ -1719,6 +1817,15 @@ final class AppModel {
             (runtimeMode != nil && runtimeMode != currentRuntimeMode) ||
             (interactionMode != nil && interactionMode != currentInteractionMode)
         guard shouldConfigure else { return }
+
+        LLog.info("companion", "configuring dex thread", fields: [
+            "serverId": key.serverId,
+            "threadId": key.threadId,
+            "updatesTitle": title != nil,
+            "updatesModelSelection": needsModelUpdate,
+            "runtimeMode": runtimeMode ?? currentRuntimeMode,
+            "interactionMode": interactionMode ?? currentInteractionMode,
+        ])
 
         let nativeSnapshot = try await client.configureNativeThread(
             threadId: key.threadId,
@@ -1916,21 +2023,36 @@ final class AppModel {
         }
 
         let threadId = UUID().uuidString
+        let resolvedRuntimeMode = dexRuntimeMode(
+            approvalPolicy: approvalPolicy,
+            sandboxMode: sandboxMode,
+            fallback: "full-access"
+        )
+        let resolvedInteractionMode = dexInteractionMode(from: interactionMode)
+        let modelSelection = dexCodexModelSelectionPayload(
+            model: model,
+            effort: ReasoningEffort(wireValue: reasoningEffort),
+            serviceTier: fastMode ? .fast : nil,
+            fallbackModel: "gpt-5.4"
+        )
+
+        LLog.info("companion", "creating dex thread", fields: [
+            "serverId": serverId,
+            "threadId": threadId,
+            "projectId": projectId,
+            "cwd": cwd ?? "",
+            "runtimeMode": resolvedRuntimeMode,
+            "interactionMode": resolvedInteractionMode,
+            "model": (modelSelection?["model"] as? String) ?? "",
+            "reasoningEffort": reasoningEffort ?? "",
+            "fastMode": fastMode,
+        ])
         let nativeSnapshot = try await client.createNativeThread(
             projectId: projectId,
             title: "New Session",
-            modelSelection: dexCodexModelSelectionPayload(
-                model: model,
-                effort: ReasoningEffort(wireValue: reasoningEffort),
-                serviceTier: fastMode ? .fast : nil,
-                fallbackModel: "gpt-5.4"
-            ),
-            runtimeMode: dexRuntimeMode(
-                approvalPolicy: approvalPolicy,
-                sandboxMode: sandboxMode,
-                fallback: "full-access"
-            ),
-            interactionMode: dexInteractionMode(from: interactionMode),
+            modelSelection: modelSelection,
+            runtimeMode: resolvedRuntimeMode,
+            interactionMode: resolvedInteractionMode,
             branch: nil,
             worktreePath: cwd?.isEmpty == false ? cwd! : nil
         )
@@ -1941,6 +2063,10 @@ final class AppModel {
             browserSession: browserSession,
             nativeSnapshot: nativeSnapshot
         )
+        LLog.info("companion", "created dex thread", fields: [
+            "serverId": serverId,
+            "threadId": threadId,
+        ])
         return key
     }
 

@@ -167,6 +167,10 @@ private final class DirectoryPickerSheetModel {
 
         if let fixedPath = fixedPath?.trimmingCharacters(in: .whitespacesAndNewlines),
            !fixedPath.isEmpty {
+            LLog.info("directory-picker", "using fixed paired project path", fields: [
+                "serverId": targetServerId,
+                "path": fixedPath,
+            ])
             currentPath = fixedPath
             isLoading = false
             return
@@ -203,8 +207,12 @@ private final class DirectoryPickerSheetModel {
             )
         }
 
-        guard appModel.snapshot?.servers.first(where: { $0.serverId == serverId })?.canBrowseDirectories == true else {
+        guard appModel.serverSnapshot(for: serverId)?.canBrowseDirectories == true else {
             if serverId == lastLoadedServerId {
+                LLog.warn("directory-picker", "directory listing unavailable because server is not connected", fields: [
+                    "serverId": serverId,
+                    "path": path,
+                ])
                 isLoading = false
                 allEntries = []
                 errorMessage = DirectoryPickerStrings.serverNotConnected
@@ -259,6 +267,10 @@ private final class DirectoryPickerSheetModel {
             }
         } catch {
             guard serverId == lastLoadedServerId else { return }
+            LLog.error("directory-picker", "remote directory listing failed", error: error, fields: [
+                "serverId": serverId,
+                "path": path,
+            ])
             errorMessage = isDisconnectedClientError(error) ?
                 DirectoryPickerStrings.serverNotConnected :
                 error.localizedDescription

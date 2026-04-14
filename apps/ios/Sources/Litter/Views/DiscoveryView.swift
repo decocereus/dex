@@ -79,11 +79,24 @@ struct DiscoveryView: View {
     @MainActor
     private func pairWithDexCompanionPayload(_ payload: DexCompanionPairingPayload) async {
         do {
+            LLog.info("companion", "redeeming paired mac payload", fields: [
+                "environmentId": payload.environment.environmentId,
+                "label": payload.environment.label,
+                "httpBaseUrl": payload.target.httpBaseUrl,
+            ])
             let session = try await DexCompanionPairingClient().redeem(payload)
             DexCompanionSessionStore.upsert(from: session)
             savedDexCompanionSessions = DexCompanionSessionStore.load()
             showConnectionSuccess("Connected to \(session.serverLabel). Choose it below to continue.")
+            LLog.info("companion", "paired mac payload redeemed", fields: [
+                "environmentId": session.environmentId,
+                "label": session.serverLabel,
+            ])
         } catch {
+            LLog.error("companion", "paired mac payload redemption failed", error: error, fields: [
+                "environmentId": payload.environment.environmentId,
+                "label": payload.environment.label,
+            ])
             connectError = error.localizedDescription
         }
     }
@@ -96,12 +109,21 @@ struct DiscoveryView: View {
             connectError = "This Mac needs to be paired again."
             return
         }
+        LLog.info("companion", "opening saved paired mac", fields: [
+            "environmentId": savedSession.environmentId,
+            "label": savedSession.serverLabel,
+            "httpBaseUrl": session.httpBaseUrl,
+        ])
         let client = DexCompanionClient(
             httpBaseUrl: session.httpBaseUrl,
             bearerToken: session.bearerToken
         )
         guard let shellSnapshot = try? await client.fetchNativeShellSnapshot(),
               let project = shellSnapshot.projects.first else {
+            LLog.warn("companion", "saved paired mac has no available projects", fields: [
+                "environmentId": savedSession.environmentId,
+                "label": savedSession.serverLabel,
+            ])
             connectError = "This Mac has no available projects yet."
             return
         }
@@ -120,6 +142,11 @@ struct DiscoveryView: View {
             preferredConnectionMode: .directCodex,
             metadata: [:]
         )
+        LLog.info("companion", "opening saved paired project", fields: [
+            "environmentId": savedSession.environmentId,
+            "projectId": project.id,
+            "projectTitle": project.title,
+        ])
         onServerSelected?(pairedServer)
     }
 

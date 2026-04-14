@@ -551,15 +551,25 @@ const PairIPhoneAction = memo(function PairIPhoneAction({
     }
     setIsCreatingCompanionPayload(true);
     try {
+      console.info("[connections] creating iPhone pairing payload", { endpointUrl });
       const payload = await createServerCompanionPairingPayload({
         httpBaseUrl: endpointUrl,
         wsBaseUrl: deriveCompanionWsBaseUrl(endpointUrl),
         label: "iPhone",
       });
       setCompanionPayloadText(JSON.stringify(payload));
+      console.info("[connections] iPhone pairing payload ready", {
+        endpointUrl,
+        environmentId: payload.environment.environmentId,
+        label: payload.environment.label,
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create iPhone pairing payload.";
+      console.error("[connections] failed to create iPhone pairing payload", {
+        endpointUrl,
+        message,
+      });
       toastManager.add({
         type: "error",
         title: "Could not create iPhone QR",
@@ -936,17 +946,25 @@ export function ConnectionsSettings() {
       setIsUpdatingDesktopServerExposure(true);
       setDesktopServerExposureError(null);
       try {
+        console.info("[connections] updating phone access", {
+          nextMode: checked ? "network-accessible" : "local-only",
+        });
         const nextState = await desktopBridge.setServerExposureMode(
           checked ? "network-accessible" : "local-only",
         );
         setDesktopServerExposureState(nextState);
         setPendingDesktopServerExposureMode(null);
         setIsUpdatingDesktopServerExposure(false);
+        console.info("[connections] phone access updated", {
+          mode: nextState.mode,
+          endpointUrl: nextState.endpointUrl ?? null,
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Failed to update network exposure.";
         setPendingDesktopServerExposureMode(null);
         setDesktopServerExposureError(message);
+        console.error("[connections] failed to update phone access", { message });
         toastManager.add({
           type: "error",
           title: "Could not update network access",

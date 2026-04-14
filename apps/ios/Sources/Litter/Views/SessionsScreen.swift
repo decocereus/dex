@@ -341,6 +341,11 @@ struct SessionsScreen: View {
                 if let server = connectedServers.first(where: { $0.id == defaultServerId }),
                    DexCompanionRouting.environmentId(fromServerId: defaultServerId) != nil {
                     let cwd = server.workspaceRoot ?? ""
+                    LLog.info("session-launch", "starting paired dex session from sessions screen", fields: [
+                        "serverId": defaultServerId,
+                        "cwd": cwd,
+                        "workspaceRoot": server.workspaceRoot ?? "",
+                    ])
                     Task { await startNewSession(serverId: defaultServerId, cwd: cwd) }
                 } else if connectedServers.first(where: { $0.id == defaultServerId })?.isLocal == true {
                     let cwd = codex_ios_default_cwd() as String? ?? NSHomeDirectory()
@@ -1117,6 +1122,12 @@ struct SessionsScreen: View {
             do {
                 let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 let selectedEffort = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
+                LLog.info("session-launch", "creating paired dex session", fields: [
+                    "serverId": serverId,
+                    "cwd": cwd,
+                    "model": selectedModel,
+                    "reasoningEffort": selectedEffort,
+                ])
                 guard let key = try await appModel.startDexThread(
                     serverId: serverId,
                     cwd: cwd,
@@ -1129,9 +1140,17 @@ struct SessionsScreen: View {
                     sessionActionErrorMessage = "Failed to create session."
                     return
                 }
+                LLog.info("session-launch", "paired dex session created", fields: [
+                    "serverId": serverId,
+                    "threadId": key.threadId,
+                ])
                 appModel.activateThread(key)
                 onOpenConversation(key)
             } catch {
+                LLog.error("session-launch", "paired dex session creation failed", error: error, fields: [
+                    "serverId": serverId,
+                    "cwd": cwd,
+                ])
                 sessionActionErrorMessage = error.localizedDescription
             }
             return

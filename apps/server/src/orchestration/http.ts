@@ -387,7 +387,7 @@ export const companionNativeThreadCreateRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/native/thread/create",
   Effect.gen(function* () {
-    yield* authenticateSession;
+    const session = yield* authenticateSession;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const serverEnvironment = yield* ServerEnvironment;
@@ -403,6 +403,14 @@ export const companionNativeThreadCreateRouteLayer = HttpRouter.add(
 
     const threadId = ThreadId.make(crypto.randomUUID());
     const createdAt = new Date().toISOString();
+    yield* Effect.logInfo("native companion thread create requested", {
+      role: session.role,
+      threadId,
+      projectId: payload.projectId,
+      runtimeMode: payload.runtimeMode,
+      interactionMode: payload.interactionMode,
+      worktreePath: payload.worktreePath ?? null,
+    });
     yield* orchestrationEngine
       .dispatch({
         type: "thread.create",
@@ -431,6 +439,11 @@ export const companionNativeThreadCreateRouteLayer = HttpRouter.add(
       );
 
     const environment = yield* serverEnvironment.getDescriptor;
+    yield* Effect.logInfo("native companion thread created", {
+      role: session.role,
+      threadId,
+      projectId: payload.projectId,
+    });
     return yield* loadNativeThreadSnapshot({
       threadId,
       projectionSnapshotQuery,
@@ -447,7 +460,7 @@ export const companionNativeThreadConfigureRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/native/thread/configure",
   Effect.gen(function* () {
-    yield* authenticateSession;
+    const session = yield* authenticateSession;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const serverEnvironment = yield* ServerEnvironment;
@@ -479,6 +492,14 @@ export const companionNativeThreadConfigureRouteLayer = HttpRouter.add(
 
     const thread = currentThread.value;
     const createdAt = new Date().toISOString();
+    yield* Effect.logInfo("native companion thread configure requested", {
+      role: session.role,
+      threadId: payload.threadId,
+      updatesTitle: payload.title !== undefined,
+      updatesModelSelection: payload.modelSelection !== undefined,
+      runtimeMode: payload.runtimeMode ?? thread.runtimeMode,
+      interactionMode: payload.interactionMode ?? thread.interactionMode,
+    });
 
     if (payload.title !== undefined || payload.modelSelection !== undefined) {
       yield* orchestrationEngine
@@ -546,6 +567,10 @@ export const companionNativeThreadConfigureRouteLayer = HttpRouter.add(
     }
 
     const environment = yield* serverEnvironment.getDescriptor;
+    yield* Effect.logInfo("native companion thread configured", {
+      role: session.role,
+      threadId: payload.threadId,
+    });
     return yield* loadNativeThreadSnapshot({
       threadId: payload.threadId,
       projectionSnapshotQuery,
@@ -562,7 +587,7 @@ export const companionNativeThreadArchiveRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/native/thread/archive",
   Effect.gen(function* () {
-    yield* authenticateSession;
+    const session = yield* authenticateSession;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadArchiveInput).pipe(
       Effect.mapError(
@@ -574,6 +599,10 @@ export const companionNativeThreadArchiveRouteLayer = HttpRouter.add(
       ),
     );
 
+    yield* Effect.logInfo("native companion thread archive requested", {
+      role: session.role,
+      threadId: payload.threadId,
+    });
     const result = yield* orchestrationEngine
       .dispatch({
         type: "thread.archive",
@@ -590,6 +619,10 @@ export const companionNativeThreadArchiveRouteLayer = HttpRouter.add(
         ),
       );
 
+    yield* Effect.logInfo("native companion thread archived", {
+      role: session.role,
+      threadId: payload.threadId,
+    });
     return HttpServerResponse.jsonUnsafe(result, { status: 200 });
   }).pipe(
     Effect.catchTag("AuthError", respondToAuthError),
@@ -601,7 +634,7 @@ export const companionNativeFileSearchRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/native/files/search",
   Effect.gen(function* () {
-    yield* authenticateSession;
+    const session = yield* authenticateSession;
     const workspaceEntries = yield* WorkspaceEntries;
     const payload = yield* HttpServerRequest.schemaBodyJson(ProjectSearchEntriesInput).pipe(
       Effect.mapError(
@@ -613,6 +646,12 @@ export const companionNativeFileSearchRouteLayer = HttpRouter.add(
       ),
     );
 
+    yield* Effect.logInfo("native companion file search requested", {
+      role: session.role,
+      cwd: payload.cwd,
+      query: payload.query,
+      limit: payload.limit,
+    });
     const result = yield* workspaceEntries.search(payload).pipe(
       Effect.mapError(
         (cause) =>
@@ -623,6 +662,13 @@ export const companionNativeFileSearchRouteLayer = HttpRouter.add(
       ),
     );
 
+    yield* Effect.logInfo("native companion file search completed", {
+      role: session.role,
+      cwd: payload.cwd,
+      query: payload.query,
+      resultCount: result.entries.length,
+      truncated: result.truncated,
+    });
     return HttpServerResponse.jsonUnsafe(
       {
         results: result.entries.map((entry, index) => ({
@@ -647,7 +693,7 @@ export const companionNativeSkillsRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/native/skills/list",
   Effect.gen(function* () {
-    yield* authenticateSession;
+    const session = yield* authenticateSession;
     const providerRegistry = yield* ProviderRegistry;
     const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeSkillsRequest).pipe(
       Effect.mapError(
@@ -659,6 +705,11 @@ export const companionNativeSkillsRouteLayer = HttpRouter.add(
       ),
     );
 
+    yield* Effect.logInfo("native companion skills requested", {
+      role: session.role,
+      cwd: payload.cwd,
+      forceReload: payload.forceReload === true,
+    });
     const providers = yield* (
       payload.forceReload === true
         ? providerRegistry.refresh("codex")
@@ -675,6 +726,13 @@ export const companionNativeSkillsRouteLayer = HttpRouter.add(
 
     const codexSkills: ReadonlyArray<ServerProviderSkill> =
       providers.find((provider) => provider.provider === "codex")?.skills ?? [];
+
+    yield* Effect.logInfo("native companion skills completed", {
+      role: session.role,
+      cwd: payload.cwd,
+      forceReload: payload.forceReload === true,
+      skillCount: codexSkills.length,
+    });
 
     return HttpServerResponse.jsonUnsafe(
       {
