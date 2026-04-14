@@ -1,13 +1,8 @@
 import AVFoundation
 import SwiftUI
 
-enum ScannedPairingPayload {
-    case dexCompanion(DexCompanionPairingPayload)
-    case macBridge(MacBridgePairingPayload)
-}
-
 struct MacPairingScannerView: View {
-    let onScan: (ScannedPairingPayload) -> Void
+    let onScan: (DexCompanionPairingPayload) -> Void
     var onClose: (() -> Void)? = nil
 
     @State private var scannerError: String?
@@ -35,7 +30,7 @@ struct MacPairingScannerView: View {
                         .stroke(Color.white.opacity(0.7), lineWidth: 2)
                         .frame(width: 250, height: 250)
 
-                    Text("Scan the pairing QR from your Mac")
+                    Text("Scan the Dex companion QR from your Mac")
                         .litterFont(.subheadline)
                         .foregroundStyle(.white)
 
@@ -103,7 +98,7 @@ struct MacPairingScannerView: View {
                 manualPayload = ""
             }
         } message: {
-            Text("Paste the full Dex companion or legacy Mac pairing payload JSON if scanning is unavailable.")
+            Text("Paste the full Dex companion pairing payload JSON if scanning is unavailable.")
         }
     }
 
@@ -122,7 +117,7 @@ struct MacPairingScannerView: View {
     }
 
     private func handleScan(_ code: String, resetScanLock: @escaping () -> Void) {
-        switch validateScannedPairingPayload(code) {
+        switch validateDexCompanionPairingPayload(code) {
         case .success(let payload):
             onScan(payload)
         case .scanError(let message):
@@ -132,7 +127,7 @@ struct MacPairingScannerView: View {
     }
 
     private func handleManualPayload() {
-        switch validateScannedPairingPayload(manualPayload) {
+        switch validateDexCompanionPairingPayload(manualPayload) {
         case .success(let payload):
             isShowingManualEntry = false
             manualPayload = ""
@@ -140,27 +135,6 @@ struct MacPairingScannerView: View {
         case .scanError(let message):
             scannerError = message
         }
-    }
-}
-
-private enum ScannedPairingValidationResult {
-    case success(ScannedPairingPayload)
-    case scanError(String)
-}
-
-private func validateScannedPairingPayload(_ code: String) -> ScannedPairingValidationResult {
-    switch validateDexCompanionPairingPayload(code) {
-    case .success(let payload):
-        return .success(.dexCompanion(payload))
-    case .scanError:
-        break
-    }
-
-    switch validateMacPairingPayload(code) {
-    case .success(let payload):
-        return .success(.macBridge(payload))
-    case .scanError:
-        return .scanError("Not a valid Dex companion or legacy Mac pairing payload.")
     }
 }
 
