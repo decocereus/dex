@@ -14,10 +14,13 @@ import { randomUUID } from "node:crypto";
 import { Effect, Layer, FileSystem, Path } from "effect";
 
 import { CheckpointInvariantError } from "../Errors.ts";
-import { GitCommandError } from "@t3tools/contracts";
+import { GitCommandError } from "@dex/contracts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { CheckpointStore, type CheckpointStoreShape } from "../Services/CheckpointStore.ts";
-import { CheckpointRef } from "@t3tools/contracts";
+import { CheckpointRef } from "@dex/contracts";
+import { parseTurnDiffFilesFromNumstat } from "../Diffs.ts";
+
+const CHECKPOINT_SUMMARY_MAX_OUTPUT_BYTES = 8 * 1024 * 1024;
 
 const makeCheckpointStore = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -92,16 +95,16 @@ const makeCheckpointStore = Effect.gen(function* () {
     const operation = "CheckpointStore.captureCheckpoint";
 
     yield* Effect.acquireUseRelease(
-      fs.makeTempDirectory({ prefix: "t3-fs-checkpoint-" }),
+      fs.makeTempDirectory({ prefix: "dex-fs-checkpoint-" }),
       Effect.fn("captureCheckpoint.withTempDirectory")(function* (tempDir) {
         const tempIndexPath = path.join(tempDir, `index-${randomUUID()}`);
         const commitEnv: NodeJS.ProcessEnv = {
           ...process.env,
           GIT_INDEX_FILE: tempIndexPath,
-          GIT_AUTHOR_NAME: "T3 Code",
-          GIT_AUTHOR_EMAIL: "t3code@users.noreply.github.com",
-          GIT_COMMITTER_NAME: "T3 Code",
-          GIT_COMMITTER_EMAIL: "t3code@users.noreply.github.com",
+          GIT_AUTHOR_NAME: "dex",
+          GIT_AUTHOR_EMAIL: "dex@users.noreply.github.com",
+          GIT_COMMITTER_NAME: "dex",
+          GIT_COMMITTER_EMAIL: "dex@users.noreply.github.com",
         };
 
         const headExists = yield* hasHeadCommit(input.cwd);
@@ -137,7 +140,7 @@ const makeCheckpointStore = Effect.gen(function* () {
           });
         }
 
-        const message = `t3 checkpoint ref=${input.checkpointRef}`;
+        const message = `dex checkpoint ref=${input.checkpointRef}`;
         const commitTreeResult = yield* git.execute({
           operation,
           cwd: input.cwd,
@@ -251,6 +254,40 @@ const makeCheckpointStore = Effect.gen(function* () {
     },
   );
 
+  const summarizeCheckpoints: CheckpointStoreShape["summarizeCheckpoints"] = Effect.fn(
+    "summarizeCheckpoints",
+  )(function* (input) {
+    const operation = "CheckpointStore.summarizeCheckpoints";
+
+    let fromCommitOid = yield* resolveCheckpointCommit(input.cwd, input.fromCheckpointRef);
+    const toCommitOid = yield* resolveCheckpointCommit(input.cwd, input.toCheckpointRef);
+
+    if (!fromCommitOid && input.fallbackFromToHead === true) {
+      const headCommit = yield* resolveHeadCommit(input.cwd);
+      if (headCommit) {
+        fromCommitOid = headCommit;
+      }
+    }
+
+    if (!fromCommitOid || !toCommitOid) {
+      return yield* new GitCommandError({
+        operation,
+        command: "git diff --numstat",
+        cwd: input.cwd,
+        detail: "Checkpoint ref is unavailable for summary operation.",
+      });
+    }
+
+    const result = yield* git.execute({
+      operation,
+      cwd: input.cwd,
+      args: ["diff", "--numstat", "--find-renames", "--no-color", fromCommitOid, toCommitOid],
+      maxOutputBytes: CHECKPOINT_SUMMARY_MAX_OUTPUT_BYTES,
+    });
+
+    return parseTurnDiffFilesFromNumstat(result.stdout);
+  });
+
   const deleteCheckpointRefs: CheckpointStoreShape["deleteCheckpointRefs"] = Effect.fn(
     "deleteCheckpointRefs",
   )(function* (input) {
@@ -275,6 +312,7 @@ const makeCheckpointStore = Effect.gen(function* () {
     hasCheckpointRef,
     restoreCheckpoint,
     diffCheckpoints,
+    summarizeCheckpoints,
     deleteCheckpointRefs,
   } satisfies CheckpointStoreShape;
 });

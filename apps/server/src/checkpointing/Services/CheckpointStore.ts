@@ -14,7 +14,8 @@ import { Context } from "effect";
 import type { Effect } from "effect";
 
 import type { CheckpointStoreError } from "../Errors.ts";
-import { CheckpointRef } from "@t3tools/contracts";
+import { CheckpointRef } from "@dex/contracts";
+import type { TurnDiffFileSummary } from "../Diffs.ts";
 
 export interface CaptureCheckpointInput {
   readonly cwd: string;
@@ -83,6 +84,15 @@ export interface CheckpointStoreShape {
   ) => Effect.Effect<string, CheckpointStoreError>;
 
   /**
+   * Compute lightweight file summaries between two checkpoint refs.
+   *
+   * Intended for timeline/sidebar summaries where a full patch is unnecessary.
+   */
+  readonly summarizeCheckpoints: (
+    input: DiffCheckpointsInput,
+  ) => Effect.Effect<ReadonlyArray<TurnDiffFileSummary>, CheckpointStoreError>;
+
+  /**
    * Delete the provided checkpoint refs.
    *
    * Best-effort delete: missing refs are tolerated.
@@ -96,5 +106,5 @@ export interface CheckpointStoreShape {
  * CheckpointStore - Service tag for checkpoint persistence and restore operations.
  */
 export class CheckpointStore extends Context.Service<CheckpointStore, CheckpointStoreShape>()(
-  "t3/checkpointing/Services/CheckpointStore",
+  "dex/checkpointing/Services/CheckpointStore",
 ) {}
