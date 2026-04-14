@@ -288,6 +288,12 @@ struct SessionsScreen: View {
         connectedServerOptions.map(\.id)
     }
 
+    private var nativeConnectedServerIds: [String] {
+        connectedServers
+            .filter { !$0.isDexCompanion }
+            .map(\.id)
+    }
+
     private var trimmedSessionSearchQuery: String {
         sessionSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -1040,12 +1046,12 @@ struct SessionsScreen: View {
         os_signpost(.begin, log: sessionsScreenSignpostLog, name: "LoadSessions", signpostID: signpostID)
         defer { os_signpost(.end, log: sessionsScreenSignpostLog, name: "LoadSessions", signpostID: signpostID) }
 
-        guard !connectedServerIds.isEmpty else {
+        guard !nativeConnectedServerIds.isEmpty else {
             isLoading = false
             return
         }
         isLoading = true
-        for serverId in connectedServerIds {
+        for serverId in nativeConnectedServerIds {
             _ = try? await appModel.client.listThreads(
                 serverId: serverId,
                 params: AppListThreadsRequest(
