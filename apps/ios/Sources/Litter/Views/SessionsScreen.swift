@@ -286,7 +286,7 @@ struct SessionsScreen: View {
 
     private var nativeConnectedServerIds: [String] {
         connectedServers
-            .filter { !$0.isDexCompanion }
+            .filter { DexCompanionRouting.environmentId(fromServerId: $0.id) == nil }
             .map(\.id)
     }
 
@@ -305,14 +305,6 @@ struct SessionsScreen: View {
 
     private var connectedServers: [HomeDashboardServer] {
         sessionsModel.connectedServers
-    }
-
-    private var dexLaunchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession] {
-        sessionsModel.dexLaunchSessionByThreadKey
-    }
-
-    private var dexLaunchSessionByServerId: [String: DexCompanionBrowserSession] {
-        sessionsModel.dexLaunchSessionByServerId
     }
 
     private var ephemeralStateByThreadKey: [ThreadKey: SessionsModel.ThreadEphemeralState] {
@@ -662,7 +654,7 @@ struct SessionsScreen: View {
                                         sessionRowContextMenu(thread)
                                     }
                                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                        if dexLaunchSessionByThreadKey[thread.key] == nil {
+                                        if DexCompanionRouting.environmentId(fromServerId: thread.key.serverId) == nil {
                                             Button {
                                                 Task { await forkThread(thread) }
                                             } label: {
@@ -672,12 +664,10 @@ struct SessionsScreen: View {
                                         }
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                        if dexLaunchSessionByThreadKey[thread.key] == nil {
-                                            Button(role: .destructive) {
-                                                archiveTargetKey = thread.key
-                                            } label: {
-                                                Label("Delete", systemImage: "trash")
-                                            }
+                                        Button(role: .destructive) {
+                                            archiveTargetKey = thread.key
+                                        } label: {
+                                            Label("Delete", systemImage: "trash")
                                         }
                                     }
                                 }
@@ -709,26 +699,26 @@ struct SessionsScreen: View {
 
     @ViewBuilder
     private func sessionRowContextMenu(_ thread: AppSessionSummary) -> some View {
-        if dexLaunchSessionByThreadKey[thread.key] == nil {
-            Button {
-                renamingThreadKey = thread.key
-                renameCurrentTitle = thread.sessionTitle
-                renameDraft = ""
-            } label: {
-                Label("Rename", systemImage: "pencil")
-            }
+        Button {
+            renamingThreadKey = thread.key
+            renameCurrentTitle = thread.sessionTitle
+            renameDraft = ""
+        } label: {
+            Label("Rename", systemImage: "pencil")
+        }
 
+        if DexCompanionRouting.environmentId(fromServerId: thread.key.serverId) == nil {
             Button {
                 Task { await forkThread(thread) }
             } label: {
                 Label("Fork", systemImage: "arrow.triangle.branch")
             }
+        }
 
-            Button(role: .destructive) {
-                archiveTargetKey = thread.key
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
+        Button(role: .destructive) {
+            archiveTargetKey = thread.key
+        } label: {
+            Label("Delete", systemImage: "trash")
         }
     }
 
@@ -1205,19 +1195,10 @@ struct SessionsScreen: View {
 
     private func submitRename() async {
         guard let key = renamingThreadKey else { return }
-        guard dexLaunchSessionByThreadKey[key] == nil else {
-            renamingThreadKey = nil
-            renameCurrentTitle = ""
-            renameDraft = ""
-            return
-        }
         let nextTitle = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !nextTitle.isEmpty else { return }
         do {
-            _ = try await appModel.client.renameThread(
-                serverId: key.serverId,
-                params: AppRenameThreadRequest(threadId: key.threadId, name: nextTitle)
-            )
+            try await appModel.renameThread(key: key, name: nextTitle)
         } catch {
             sessionActionErrorMessage = error.localizedDescription
         }
@@ -1228,15 +1209,8 @@ struct SessionsScreen: View {
 
     private func confirmArchiveSession() async {
         guard let key = archiveTargetKey else { return }
-        guard dexLaunchSessionByThreadKey[key] == nil else {
-            archiveTargetKey = nil
-            return
-        }
         do {
-            _ = try await appModel.client.archiveThread(
-                serverId: key.serverId,
-                params: AppArchiveThreadRequest(threadId: key.threadId)
-            )
+            try await appModel.archiveThread(key: key)
             if appModel.snapshot?.activeThread == nil {
                 workDir = ""
                 appState.currentCwd = ""

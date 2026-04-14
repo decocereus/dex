@@ -1,6 +1,5 @@
 import Foundation
 
-@MainActor
 enum DexCompanionRouting {
     static func serverId(for environmentId: String, projectId: String? = nil) -> String {
         if let projectId, !projectId.isEmpty {

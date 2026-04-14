@@ -7,8 +7,6 @@ enum DexCompanionDashboardIndex {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
         let sessionSummaries: [AppSessionSummary]
-        let launchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession]
-        let launchSessionByServerId: [String: DexCompanionBrowserSession]
     }
 
     static func load(limit: Int = 10) async -> Snapshot {
@@ -16,8 +14,6 @@ enum DexCompanionDashboardIndex {
         var connectedServers: [HomeDashboardServer] = []
         var recentSessions: [HomeDashboardRecentSession] = []
         var sessionSummaries: [AppSessionSummary] = []
-        var launchSessionByThreadKey: [ThreadKey: DexCompanionBrowserSession] = [:]
-        var launchSessionByServerId: [String: DexCompanionBrowserSession] = [:]
 
         for savedSession in savedSessions {
             guard let browserSession = savedSession.makeBrowserSession() else {
@@ -45,12 +41,6 @@ enum DexCompanionDashboardIndex {
                     projectId: project.id
                 )
                 let latestThread = sortedThreads.first(where: { $0.projectId == project.id })
-                let serverLaunchSession = browserSession.withNavigation(
-                    initialPath: DexCompanionRouting.chatRootPath(),
-                    navigationTitle: project.title
-                )
-                launchSessionByServerId[serverId] = serverLaunchSession
-
                 connectedServers.append(
                     HomeDashboardServer(
                         id: serverId,
@@ -65,8 +55,7 @@ enum DexCompanionDashboardIndex {
                         statusColor: LitterTheme.accent,
                         workspaceRoot: project.workspaceRoot,
                         projectName: project.title,
-                        latestThreadTitle: latestThread?.title,
-                        launchSession: serverLaunchSession
+                        latestThreadTitle: latestThread?.title
                     )
                 )
             }
@@ -79,15 +68,6 @@ enum DexCompanionDashboardIndex {
                     projectId: thread.projectId
                 )
                 let threadKey = ThreadKey(serverId: serverId, threadId: thread.threadRef.threadId)
-                let launchSession = browserSession.withNavigation(
-                    initialPath: DexCompanionRouting.threadPath(
-                        environmentId: browserSession.environmentId,
-                        threadId: thread.threadRef.threadId
-                    ),
-                    navigationTitle: thread.title
-                )
-                launchSessionByThreadKey[threadKey] = launchSession
-
                 sessionSummaries.append(
                     AppSessionSummary(
                         key: threadKey,
@@ -117,8 +97,7 @@ enum DexCompanionDashboardIndex {
                     sessionTitle: thread.title,
                     cwd: thread.cwd ?? project?.workspaceRoot ?? "",
                     updatedAt: updatedAt,
-                    hasTurnActive: thread.hasActiveTurn,
-                    launchSession: launchSession
+                    hasTurnActive: thread.hasActiveTurn
                 )
             }
 
@@ -132,9 +111,7 @@ enum DexCompanionDashboardIndex {
                 dexCompanion: recentSessions,
                 limit: limit
             ),
-            sessionSummaries: sessionSummaries.sorted { $0.updatedAtDate > $1.updatedAtDate },
-            launchSessionByThreadKey: launchSessionByThreadKey,
-            launchSessionByServerId: launchSessionByServerId
+            sessionSummaries: sessionSummaries.sorted { $0.updatedAtDate > $1.updatedAtDate }
         )
     }
 

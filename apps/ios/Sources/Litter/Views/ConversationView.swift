@@ -1836,10 +1836,7 @@ private struct ConversationInputBar: View {
 
     private func renameThread(_ newName: String) async {
         do {
-            _ = try await appModel.client.renameThread(
-                serverId: snapshot.threadKey.serverId,
-                params: AppRenameThreadRequest(threadId: snapshot.threadKey.threadId, name: newName)
-            )
+            try await appModel.renameThread(key: snapshot.threadKey, name: newName)
             await appModel.refreshSnapshot()
             showRenamePrompt = false
             renameCurrentThreadTitle = ""

@@ -29,7 +29,6 @@ struct DexCompanionSavedSession: Codable, Equatable, Identifiable {
     }
 }
 
-@MainActor
 enum DexCompanionSessionStore {
     private static let storageKey = "dex.companion.sessions"
 

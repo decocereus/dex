@@ -1317,6 +1317,26 @@ final class AppModel {
         try await store.respondToUserInput(requestId: requestId, answers: answers)
     }
 
+    func renameThread(key: ThreadKey, name: String) async throws {
+        if try await renameDexThreadIfNeeded(key: key, name: name) {
+            return
+        }
+        _ = try await client.renameThread(
+            serverId: key.serverId,
+            params: AppRenameThreadRequest(threadId: key.threadId, name: name)
+        )
+    }
+
+    func archiveThread(key: ThreadKey) async throws {
+        if try await archiveDexThreadIfNeeded(key: key) {
+            return
+        }
+        _ = try await client.archiveThread(
+            serverId: key.serverId,
+            params: AppArchiveThreadRequest(threadId: key.threadId)
+        )
+    }
+
     private func dexClient(for serverId: String) -> DexCompanionClient? {
         guard let browserSession = DexCompanionRouting.browserSession(forServerId: serverId) else {
             return nil
@@ -1514,6 +1534,39 @@ final class AppModel {
             "createdAt": ISO8601DateFormatter().string(from: Date()),
         ])
         try await refreshDexThreadSnapshot(key: entry.key)
+        return true
+    }
+
+    private func renameDexThreadIfNeeded(
+        key: ThreadKey,
+        name: String
+    ) async throws -> Bool {
+        guard let client = dexClient(for: key.serverId) else {
+            return false
+        }
+        _ = try await client.dispatchCommand([
+            "type": "thread.meta.update",
+            "commandId": UUID().uuidString,
+            "threadId": key.threadId,
+            "title": name,
+        ])
+        try await refreshDexThreadSnapshot(key: key)
+        return true
+    }
+
+    private func archiveDexThreadIfNeeded(key: ThreadKey) async throws -> Bool {
+        guard let client = dexClient(for: key.serverId) else {
+            return false
+        }
+        _ = try await client.dispatchCommand([
+            "type": "thread.archive",
+            "commandId": UUID().uuidString,
+            "threadId": key.threadId,
+        ])
+        dexThreadSnapshots.removeValue(forKey: key)
+        dexPendingApprovalsByThread.removeValue(forKey: key)
+        dexPendingUserInputsByThread.removeValue(forKey: key)
+        snapshotRevision &+= 1
         return true
     }
 

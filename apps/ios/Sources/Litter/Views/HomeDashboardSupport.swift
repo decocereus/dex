@@ -9,12 +9,11 @@ struct HomeDashboardRecentSession: Identifiable, Hashable {
     let cwd: String
     let updatedAt: Date
     let hasTurnActive: Bool
-    let launchSession: DexCompanionBrowserSession?
 
     var id: ThreadKey { key }
 
     var isDexCompanion: Bool {
-        launchSession != nil
+        DexCompanionRouting.environmentId(fromServerId: serverId) != nil
     }
 }
 
@@ -32,7 +31,6 @@ struct HomeDashboardServer: Identifiable, Equatable {
     let workspaceRoot: String?
     let projectName: String?
     let latestThreadTitle: String?
-    let launchSession: DexCompanionBrowserSession?
 
     var deduplicationKey: String {
         if isLocal {
@@ -60,12 +58,11 @@ struct HomeDashboardServer: Identifiable, Equatable {
             lhs.statusLabel == rhs.statusLabel &&
             lhs.workspaceRoot == rhs.workspaceRoot &&
             lhs.projectName == rhs.projectName &&
-            lhs.latestThreadTitle == rhs.latestThreadTitle &&
-            lhs.launchSession == rhs.launchSession
+            lhs.latestThreadTitle == rhs.latestThreadTitle
     }
 
     var isDexCompanion: Bool {
-        launchSession != nil
+        DexCompanionRouting.environmentId(fromServerId: id) != nil
     }
 }
 
@@ -89,8 +86,7 @@ enum HomeDashboardSupport {
                         sessionTitle: sessionTitle(for: session),
                         cwd: session.cwd,
                         updatedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt ?? 0)),
-                        hasTurnActive: session.hasActiveTurn,
-                        launchSession: nil
+                        hasTurnActive: session.hasActiveTurn
                     )
                 }
                 .prefix(limit)
@@ -127,8 +123,7 @@ enum HomeDashboardSupport {
                     statusColor: server.statusColor,
                     workspaceRoot: primarySession?.cwd,
                     projectName: projectName,
-                    latestThreadTitle: latestThreadTitle,
-                    launchSession: nil
+                    latestThreadTitle: latestThreadTitle
                 )
             }
             .sorted { lhs, rhs in

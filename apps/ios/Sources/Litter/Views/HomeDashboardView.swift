@@ -156,12 +156,10 @@ struct HomeDashboardView: View {
                         .buttonStyle(.plain)
                         .disabled(openingRecentSessionKey != nil || isStartingNewSession)
                         .contextMenu {
-                            if !thread.isDexCompanion {
-                                Button(role: .destructive) {
-                                    deleteTargetThread = thread
-                                } label: {
-                                    Label("Delete Session", systemImage: "trash")
-                                }
+                            Button(role: .destructive) {
+                                deleteTargetThread = thread
+                            } label: {
+                                Label("Delete Session", systemImage: "trash")
                             }
                         }
                     }
