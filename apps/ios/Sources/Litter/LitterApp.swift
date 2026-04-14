@@ -737,6 +737,10 @@ private struct HomeNavigationView: View {
 
     private func handleNewSessionTap() {
         if let defaultServerId = defaultNewSessionServerId(preferredServerId: appState.sessionsSelectedServerFilterId) {
+            if let launchSession = DexCompanionRouting.browserSession(forServerId: defaultServerId) {
+                openDexCompanion(launchSession)
+                return
+            }
             // For local on-device server, skip directory picker and use /home/codex.
             if let server = homeDashboardModel.connectedServers.first(where: { $0.id == defaultServerId }),
                server.isLocal {
@@ -863,6 +867,10 @@ private struct HomeNavigationView: View {
     }
 
     private func startNewSession(serverId: String, cwd: String) async {
+        if let launchSession = DexCompanionRouting.browserSession(forServerId: serverId) {
+            openDexCompanion(launchSession)
+            return
+        }
         guard !isStartingNewSession else { return }
         let signpostID = OSSignpostID(log: homeNavigationSignpostLog)
         os_signpost(
@@ -1115,7 +1123,9 @@ private struct ConversationDestinationScreen: View {
 
     var body: some View {
         Group {
-            if let conversationThread {
+            if let dexSession = DexCompanionRouting.browserSession(forThreadKey: threadKey) {
+                DexCompanionWebScreen(session: dexSession)
+            } else if let conversationThread {
                 ConversationView(
                     thread: conversationThread,
                     activeThreadKey: resolvedThreadKey,
@@ -1162,7 +1172,7 @@ private struct ConversationDestinationScreen: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let conversationThread {
+            if let conversationThread, DexCompanionRouting.browserSession(forThreadKey: threadKey) == nil {
                 ToolbarItem(placement: .principal) {
                     HeaderView(thread: conversationThread)
                 }
