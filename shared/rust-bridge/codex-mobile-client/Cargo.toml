@@ -40,7 +40,6 @@ url = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true }
 tracing-subscriber = { workspace = true }
-litter-mac-bridge-core = { path = "../litter-mac-bridge-core" }
 
 [features]
 rpc-trace = []

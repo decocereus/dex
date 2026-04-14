@@ -34,7 +34,7 @@ enum DexCompanionDashboardIndex {
                 continue
             }
 
-            let serverId = dexServerId(for: savedSession.environmentId)
+            let serverId = DexCompanionRouting.serverId(for: savedSession.environmentId)
             let host = URL(string: browserSession.httpBaseUrl)?.host ?? "dex"
             let port = UInt16(URL(string: browserSession.httpBaseUrl)?.port ?? 443)
             let sortedThreads = shellSnapshot.threads.sorted {
@@ -46,7 +46,7 @@ enum DexCompanionDashboardIndex {
             } ?? shellSnapshot.projects.first
 
             let serverLaunchSession = browserSession.withNavigation(
-                initialPath: dexChatRootPath(),
+                initialPath: DexCompanionRouting.chatRootPath(),
                 navigationTitle: browserSession.serverLabel
             )
             launchSessionByServerId[serverId] = serverLaunchSession
@@ -74,7 +74,10 @@ enum DexCompanionDashboardIndex {
                 let updatedAt = parseDate(thread.updatedAt)
                 let threadKey = ThreadKey(serverId: serverId, threadId: thread.id)
                 let launchSession = browserSession.withNavigation(
-                    initialPath: dexThreadPath(environmentId: browserSession.environmentId, threadId: thread.id),
+                    initialPath: DexCompanionRouting.threadPath(
+                        environmentId: browserSession.environmentId,
+                        threadId: thread.id
+                    ),
                     navigationTitle: thread.title
                 )
                 launchSessionByThreadKey[threadKey] = launchSession
@@ -127,18 +130,6 @@ enum DexCompanionDashboardIndex {
             launchSessionByThreadKey: launchSessionByThreadKey,
             launchSessionByServerId: launchSessionByServerId
         )
-    }
-
-    private static func dexServerId(for environmentId: String) -> String {
-        "dex-companion:\(environmentId)"
-    }
-
-    private static func dexThreadPath(environmentId: String, threadId: String) -> String {
-        "/_chat/\(environmentId)/\(threadId)"
-    }
-
-    private static func dexChatRootPath() -> String {
-        "/_chat/"
     }
 
     private static func parseDate(_ value: String) -> Date {

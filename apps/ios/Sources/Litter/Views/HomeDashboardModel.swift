@@ -19,12 +19,21 @@ final class HomeDashboardModel {
     @ObservationIgnored private var nativeSnapshot = Snapshot(connectedServers: [], recentSessions: [])
     @ObservationIgnored private var dexSnapshot = Snapshot(connectedServers: [], recentSessions: [])
     @ObservationIgnored private var dexRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var dexPollingTask: Task<Void, Never>?
+
+    private static let dexPollingNanoseconds: UInt64 = 10_000_000_000
+
+    deinit {
+        dexRefreshTask?.cancel()
+        dexPollingTask?.cancel()
+    }
 
     func bind(appModel: AppModel) {
         self.appModel = appModel
         guard isActive else { return }
         refreshState()
         refreshDexCompanionState()
+        startDexPolling()
     }
 
     func activate() {
@@ -32,6 +41,7 @@ final class HomeDashboardModel {
         isActive = true
         refreshState()
         refreshDexCompanionState()
+        startDexPolling()
     }
 
     func deactivate() {
@@ -40,6 +50,8 @@ final class HomeDashboardModel {
         observationGeneration &+= 1
         dexRefreshTask?.cancel()
         dexRefreshTask = nil
+        dexPollingTask?.cancel()
+        dexPollingTask = nil
     }
 
     private func refreshState() {
@@ -89,6 +101,22 @@ final class HomeDashboardModel {
                 recentSessions: snapshot.recentSessions
             )
             self.publishMergedState()
+        }
+    }
+
+    private func startDexPolling() {
+        guard dexPollingTask == nil else { return }
+        dexPollingTask = Task { @MainActor [weak self] in
+            while let self, self.isActive, !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: Self.dexPollingNanoseconds)
+                } catch {
+                    break
+                }
+                guard self.isActive, !Task.isCancelled else { break }
+                self.refreshDexCompanionState()
+            }
+            self?.dexPollingTask = nil
         }
     }
 

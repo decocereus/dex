@@ -49,6 +49,14 @@ final class SessionsModel {
         launchSessionByServerId: [:]
     )
     @ObservationIgnored private var dexRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var dexPollingTask: Task<Void, Never>?
+
+    private static let dexPollingNanoseconds: UInt64 = 10_000_000_000
+
+    deinit {
+        dexRefreshTask?.cancel()
+        dexPollingTask?.cancel()
+    }
 
     func bind(appModel: AppModel, appState: AppState) {
         let needsRebind = self.appModel !== appModel || self.appState !== appState
@@ -60,6 +68,7 @@ final class SessionsModel {
         hasInitializedState = true
         refreshState()
         refreshDexCompanionState()
+        startDexPolling()
     }
 
     func updateSearchQuery(_ query: String) {
@@ -141,8 +150,7 @@ final class SessionsModel {
                 connectedServers: nextConnectedServers,
                 ephemeralStateByThreadKey: nextEphemeralStateByThreadKey,
                 activeThreadKey: appSnapshot?.activeThread,
-                frozenMostRecentThreadOrder: nextFrozenMostRecentThreadOrder
-                ,
+                frozenMostRecentThreadOrder: nextFrozenMostRecentThreadOrder,
                 dexLaunchSessionByThreadKey: dexSnapshot.launchSessionByThreadKey,
                 dexLaunchSessionByServerId: dexSnapshot.launchSessionByServerId
             )
@@ -198,6 +206,22 @@ final class SessionsModel {
                 launchSessionByServerId: snapshot.launchSessionByServerId
             )
             self.refreshState()
+        }
+    }
+
+    private func startDexPolling() {
+        guard dexPollingTask == nil else { return }
+        dexPollingTask = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled {
+                do {
+                    try await Task.sleep(nanoseconds: Self.dexPollingNanoseconds)
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+                self.refreshDexCompanionState()
+            }
+            self?.dexPollingTask = nil
         }
     }
 

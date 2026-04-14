@@ -23,7 +23,6 @@ pub mod recorder;
 pub mod permissions;
 pub mod reconnect;
 pub mod remote_path;
-pub mod secure_bridge_proxy;
 pub mod session;
 pub mod ssh;
 pub mod store;

@@ -965,6 +965,10 @@ private struct HomeNavigationView: View {
     }
 
     private func openConversation(_ key: ThreadKey) {
+        if let session = DexCompanionRouting.browserSession(forThreadKey: key) {
+            openDexCompanion(session)
+            return
+        }
         hasSeededInitialConversationRoute = true
         appState.showModelSelector = false
         guard navigationPath.last != .conversation(key) else { return }
@@ -1023,6 +1027,10 @@ private struct HomeNavigationView: View {
     }
 
     private func showSessions(for serverId: String) {
+        if let session = DexCompanionRouting.browserSession(forServerId: serverId) {
+            openDexCompanion(session)
+            return
+        }
         appState.sessionsSelectedServerFilterId = serverId
         appState.sessionsShowOnlyForks = false
         appState.showModelSelector = false

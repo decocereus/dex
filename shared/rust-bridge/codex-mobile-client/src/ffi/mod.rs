@@ -11,8 +11,6 @@ mod errors;
 mod parser;
 mod reconnect;
 mod remote_path;
-mod secure_bridge;
-mod secure_bridge_proxy;
 pub(crate) mod shared;
 mod ssh;
 
@@ -23,8 +21,6 @@ pub use errors::ClientError;
 pub use parser::MessageParser;
 pub use reconnect::ReconnectController;
 pub use remote_path::RemotePath;
-pub use secure_bridge::{AppPhoneIdentityRecord, AppSecureApplicationPayloadRecord, SecureRelayBridgeClient};
-pub use secure_bridge_proxy::SecureRelayProxyBridge;
 pub use ssh::{AppSshConnectionResult, SshBridge};
 
 // Re-export reconnect boundary types so UniFFI can discover them.

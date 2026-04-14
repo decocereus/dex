@@ -4,8 +4,6 @@ members = [
   "codex-debug-cli",
   "codex-ios-audio",
   "codex-ipc",
-  "litter-mac-bridge",
-  "litter-mac-bridge-core",
   "codex-mobile-client",
   "uniffi-bindgen",
   "codex-tui",
