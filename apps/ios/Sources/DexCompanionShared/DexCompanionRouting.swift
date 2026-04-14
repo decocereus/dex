@@ -34,17 +34,6 @@ enum DexCompanionRouting {
         "/_chat/"
     }
 
-    static func browserSession(forThreadKey key: ThreadKey) -> DexCompanionBrowserSession? {
-        guard let environmentId = environmentId(fromServerId: key.serverId) else { return nil }
-        return DexCompanionSessionStore.load()
-            .first(where: { $0.environmentId == environmentId })?
-            .makeBrowserSession()?
-            .withNavigation(
-                initialPath: threadPath(environmentId: environmentId, threadId: key.threadId),
-                navigationTitle: nil
-            )
-    }
-
     static func browserSession(forServerId serverId: String) -> DexCompanionBrowserSession? {
         guard let environmentId = environmentId(fromServerId: serverId) else { return nil }
         return DexCompanionSessionStore.load()

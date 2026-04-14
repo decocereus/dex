@@ -400,9 +400,43 @@ final class AppModel {
     }
 
     func applySnapshot(_ snapshot: AppSnapshotRecord?) {
+        let previousSnapshot = self.snapshot
         let normalizedSnapshot = snapshot.map(normalizingLocalServerDisplayNames)
         let mergedSnapshot = normalizedSnapshot.map(mergingCachedThreadSnapshots)
         self.snapshot = mergedSnapshot
+        let previousSessionKeys = Set(previousSnapshot?.sessionSummaries.map { $0.key } ?? [])
+        let nextSessionKeys = Set(mergedSnapshot?.sessionSummaries.map { $0.key } ?? [])
+        let previousThreadKeys = Set(previousSnapshot?.threads.map { $0.key } ?? [])
+        let nextThreadKeys = Set(mergedSnapshot?.threads.map { $0.key } ?? [])
+        let previousServerIds = Set(previousSnapshot?.servers.map { $0.serverId } ?? [])
+        let nextServerIds = Set(mergedSnapshot?.servers.map { $0.serverId } ?? [])
+        let addedSessionCount = nextSessionKeys.subtracting(previousSessionKeys).count
+        let removedSessionCount = previousSessionKeys.subtracting(nextSessionKeys).count
+        let addedThreadCount = nextThreadKeys.subtracting(previousThreadKeys).count
+        let removedThreadCount = previousThreadKeys.subtracting(nextThreadKeys).count
+        let addedServerCount = nextServerIds.subtracting(previousServerIds).count
+        let removedServerCount = previousServerIds.subtracting(nextServerIds).count
+        if addedSessionCount > 0 ||
+            removedSessionCount > 0 ||
+            addedThreadCount > 0 ||
+            removedThreadCount > 0 ||
+            addedServerCount > 0 ||
+            removedServerCount > 0 {
+            let sessionCount = mergedSnapshot?.sessionSummaries.count ?? 0
+            let threadCount = mergedSnapshot?.threads.count ?? 0
+            let serverCount = mergedSnapshot?.servers.count ?? 0
+            LLog.info("companion", "applied snapshot", fields: [
+                "sessionCount": sessionCount,
+                "threadCount": threadCount,
+                "serverCount": serverCount,
+                "addedSessionCount": addedSessionCount,
+                "removedSessionCount": removedSessionCount,
+                "addedThreadCount": addedThreadCount,
+                "removedThreadCount": removedThreadCount,
+                "addedServerCount": addedServerCount,
+                "removedServerCount": removedServerCount
+            ])
+        }
         if let mergedSnapshot {
             persistWakeMACs(from: mergedSnapshot.servers)
             mergedSnapshot.threads.forEach(cacheThreadSnapshot)
