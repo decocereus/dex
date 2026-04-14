@@ -29,6 +29,7 @@ struct SessionsScreen: View {
     @State private var sessionSearchDebounceTask: Task<Void, Never>?
     @State private var hasLoadedInitialSessions = false
     private let autoLoadSessions: Bool
+    private let pinnedServerId: String?
     private let onOpenConversation: (ThreadKey) -> Void
     private let onInfo: (() -> Void)?
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -39,10 +40,12 @@ struct SessionsScreen: View {
 
     init(
         autoLoadSessions: Bool = true,
+        pinnedServerId: String? = nil,
         onOpenConversation: @escaping (ThreadKey) -> Void,
         onInfo: (() -> Void)? = nil
     ) {
         self.autoLoadSessions = autoLoadSessions
+        self.pinnedServerId = pinnedServerId
         self.onOpenConversation = onOpenConversation
         self.onInfo = onInfo
         _isLoading = State(initialValue: autoLoadSessions)
@@ -110,11 +113,17 @@ struct SessionsScreen: View {
     ) -> some View {
         content
             .task {
+                if let pinnedServerId {
+                    appState.sessionsSelectedServerFilterId = pinnedServerId
+                }
                 sessionsModel.bind(appModel: appModel, appState: appState)
                 sessionsModel.updateSearchQuery(debouncedSessionSearchQuery)
                 await loadSessionsIfNeeded()
             }
             .onAppear {
+                if let pinnedServerId {
+                    appState.sessionsSelectedServerFilterId = pinnedServerId
+                }
                 scheduleActiveSessionScrollIfNeeded()
             }
             .onChange(of: connectedServerIds) { _, ids in
@@ -123,7 +132,11 @@ struct SessionsScreen: View {
                 scheduleActiveSessionScrollIfNeeded()
                 guard let pickerSheet = directoryPickerSheet else {
                     if let filterId = selectedServerFilterId, !ids.contains(filterId) {
-                        selectedServerFilterId = nil
+                        if let pinnedServerId, ids.contains(pinnedServerId) {
+                            selectedServerFilterId = pinnedServerId
+                        } else {
+                            selectedServerFilterId = nil
+                        }
                     }
                     return
                 }
@@ -138,7 +151,11 @@ struct SessionsScreen: View {
                     directoryPickerSheet = nextSheet
                 }
                 if let filterId = selectedServerFilterId, !ids.contains(filterId) {
-                    selectedServerFilterId = nil
+                    if let pinnedServerId, ids.contains(pinnedServerId) {
+                        selectedServerFilterId = pinnedServerId
+                    } else {
+                        selectedServerFilterId = nil
+                    }
                 }
             }
             .onChange(of: activeThreadKey) { _, _ in
@@ -331,13 +348,23 @@ struct SessionsScreen: View {
         SessionLaunchSupport.defaultConnectedServerId(
             connectedServerIds: connectedServerIds,
             activeThreadKey: activeThreadKey,
-            preferredServerId: preferredServerId
+            preferredServerId: preferredServerId ?? pinnedServerId
         )
     }
 
     private var newSessionButton: some View {
         Button {
-            if let defaultServerId = defaultNewSessionServerId(preferredServerId: appState.sessionsSelectedServerFilterId) {
+            let preferredServerId = appState.sessionsSelectedServerFilterId ?? pinnedServerId
+            if preferredServerId == nil, connectedServerIds.count > 1 {
+                if let firstServerId = connectedServerIds.first {
+                    directoryPickerSheet = SessionLaunchSupport.DirectoryPickerSheetModel(selectedServerId: firstServerId)
+                } else {
+                    appState.showServerPicker = true
+                }
+                return
+            }
+
+            if let defaultServerId = defaultNewSessionServerId(preferredServerId: preferredServerId) {
                 if let server = connectedServers.first(where: { $0.id == defaultServerId }),
                    DexCompanionRouting.environmentId(fromServerId: defaultServerId) != nil {
                     let cwd = server.workspaceRoot ?? ""

@@ -548,6 +548,7 @@ private struct HomeNavigationView: View {
                 switch route {
                 case let .sessions(serverId, title):
                     SessionsScreen(
+                        pinnedServerId: serverId,
                         onOpenConversation: { key in
                             openConversation(key)
                         },
