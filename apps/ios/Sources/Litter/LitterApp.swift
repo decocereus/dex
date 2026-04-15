@@ -518,9 +518,13 @@ private struct HomeNavigationView: View {
                             }
                         },
                         onDisconnectServer: { serverId in
-                            SavedServerStore.remove(serverId: serverId)
-                            Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
-                            appModel.serverBridge.disconnectServer(serverId: serverId)
+                            if let environmentId = DexCompanionRouting.environmentId(fromServerId: serverId) {
+                                DexCompanionSessionStore.remove(environmentId: environmentId)
+                            } else {
+                                SavedServerStore.remove(serverId: serverId)
+                                Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
+                                appModel.serverBridge.disconnectServer(serverId: serverId)
+                            }
                         },
                         onRenameServer: { serverId, newName in
                             SavedServerStore.rename(serverId: serverId, newName: newName)

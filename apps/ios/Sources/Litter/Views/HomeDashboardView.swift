@@ -80,14 +80,18 @@ struct HomeDashboardView: View {
             set: { if !$0 { disconnectTargetServer = nil } }
         )) {
             Button("Cancel", role: .cancel) { disconnectTargetServer = nil }
-            Button("Disconnect", role: .destructive) {
+            Button(disconnectTargetServer?.isDexCompanion == true ? "Forget" : "Disconnect", role: .destructive) {
                 if let server = disconnectTargetServer {
                     onDisconnectServer?(server.id)
                 }
                 disconnectTargetServer = nil
             }
         } message: {
-            Text("Disconnect from \"\(disconnectTargetServer?.displayName ?? "this server")\"?")
+            if disconnectTargetServer?.isDexCompanion == true {
+                Text("Forget the paired Dex desktop for \"\(disconnectTargetServer?.displayName ?? "this project")\" on this iPhone?")
+            } else {
+                Text("Disconnect from \"\(disconnectTargetServer?.displayName ?? "this server")\"?")
+            }
         }
         .alert("Rename Server", isPresented: Binding(
             get: { renameTargetServer != nil },
@@ -202,7 +206,13 @@ struct HomeDashboardView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            if !server.isDexCompanion {
+                            if server.isDexCompanion {
+                                Button(role: .destructive) {
+                                    disconnectTargetServer = server
+                                } label: {
+                                    Label("Forget Desktop", systemImage: "trash")
+                                }
+                            } else {
                                 Button {
                                     onReconnectServer?(server)
                                 } label: {
