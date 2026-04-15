@@ -28,6 +28,16 @@ final class DexThreadIdentityTests: XCTestCase {
         XCTAssertNil(model.snapshot?.activeThread)
     }
 
+    func testClearDexEnvironmentStateLocallyClearsMatchingActiveThread() {
+        let key = ThreadKey(serverId: "dex-companion:env-1::project-1", threadId: "thread-1")
+        let model = AppModel()
+        model.applySnapshot(makeSnapshot(activeThread: key))
+
+        model.clearDexEnvironmentStateLocally(environmentId: "env-1")
+
+        XCTAssertNil(model.snapshot?.activeThread)
+    }
+
     private func makeNativeThreadSnapshot(
         threadID: String,
         summaryThreadID: String
