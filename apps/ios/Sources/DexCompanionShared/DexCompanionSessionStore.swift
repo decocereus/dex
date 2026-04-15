@@ -30,19 +30,28 @@ struct DexCompanionSavedSession: Codable, Equatable, Identifiable {
 }
 
 enum DexCompanionSessionStore {
-    private static let storageKey = "dex.companion.sessions"
+    private static let storageKey = "dex.desktop.sessions"
+    private static let legacyStorageKey = "dex.companion.sessions"
 
     static func load() -> [DexCompanionSavedSession] {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: storageKey) ?? defaults.data(forKey: legacyStorageKey),
               let sessions = try? JSONDecoder().decode([DexCompanionSavedSession].self, from: data) else {
             return []
         }
+
+        if defaults.data(forKey: storageKey) == nil {
+            defaults.set(data, forKey: storageKey)
+        }
+
         return sessions.sorted { $0.serverLabel.localizedCaseInsensitiveCompare($1.serverLabel) == .orderedAscending }
     }
 
     static func save(_ sessions: [DexCompanionSavedSession]) {
         guard let data = try? JSONEncoder().encode(sessions) else { return }
-        UserDefaults.standard.set(data, forKey: storageKey)
+        let defaults = UserDefaults.standard
+        defaults.set(data, forKey: storageKey)
+        defaults.removeObject(forKey: legacyStorageKey)
     }
 
     static func upsert(_ session: DexCompanionSavedSession) {
