@@ -1,8 +1,8 @@
 import {
   ClientOrchestrationCommand,
   CommandId,
-  CompanionNativeShellSnapshot,
-  CompanionNativeThreadSnapshot,
+  DexMobileNativeShellSnapshot,
+  DexMobileNativeThreadSnapshot,
   type ExecutionEnvironmentDescriptor,
   ModelSelection,
   type OrchestrationEvent,
@@ -25,8 +25,8 @@ import { respondToAuthError } from "../auth/http.ts";
 import { ServerAuth } from "../auth/Services/ServerAuth.ts";
 import { normalizeDispatchCommand } from "./Normalizer.ts";
 import {
-  toCompanionNativeShellSnapshot,
-  toCompanionNativeThreadSnapshot,
+  toDexMobileNativeShellSnapshot,
+  toDexMobileNativeThreadSnapshot,
 } from "./nativeProjection.ts";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import {
@@ -124,7 +124,7 @@ export const orchestrationDispatchRouteLayer = HttpRouter.add(
   ),
 );
 
-const companionClientAllowedCommandTypes = new Set([
+const mobileClientAllowedCommandTypes = new Set([
   "thread.turn.start",
   "thread.turn.interrupt",
   "thread.approval.respond",
@@ -135,7 +135,7 @@ const companionClientAllowedCommandTypes = new Set([
 const nativeThreadStreamEncoder = new TextEncoder();
 const nativeShellStreamEncoder = new TextEncoder();
 
-const CompanionNativeThreadCreateInput = Schema.Struct({
+const DexMobileNativeThreadCreateInput = Schema.Struct({
   projectId: ProjectId,
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
@@ -147,7 +147,7 @@ const CompanionNativeThreadCreateInput = Schema.Struct({
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
 });
 
-const CompanionNativeThreadConfigureInput = Schema.Struct({
+const DexMobileNativeThreadConfigureInput = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
@@ -155,11 +155,11 @@ const CompanionNativeThreadConfigureInput = Schema.Struct({
   interactionMode: Schema.optional(ProviderInteractionMode),
 });
 
-const CompanionNativeThreadArchiveInput = Schema.Struct({
+const DexMobileNativeThreadArchiveInput = Schema.Struct({
   threadId: ThreadId,
 });
 
-const CompanionNativeSkillsRequest = Schema.Struct({
+const DexMobileNativeSkillsRequest = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   forceReload: Schema.optional(Schema.Boolean),
 });
@@ -198,7 +198,7 @@ const companionShellSnapshotHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationGetSnapshotError({
-          message: "Failed to load companion shell snapshot.",
+          message: "Failed to load mobile shell snapshot.",
           cause,
         }),
     ),
@@ -230,7 +230,7 @@ function loadNativeThreadSnapshot(input: {
     Effect.mapError(
       (cause) =>
         new OrchestrationGetSnapshotError({
-          message: "Failed to load native companion thread snapshot.",
+          message: "Failed to load native mobile thread snapshot.",
           cause,
         }),
     ),
@@ -243,10 +243,10 @@ function loadNativeThreadSnapshot(input: {
 
       return Effect.succeed(
         HttpServerResponse.jsonUnsafe(
-          toCompanionNativeThreadSnapshot({
+          toDexMobileNativeThreadSnapshot({
             environment: input.environment,
             thread: thread.value,
-          }) satisfies CompanionNativeThreadSnapshot,
+          }) satisfies DexMobileNativeThreadSnapshot,
           { status: 200 },
         ),
       );
@@ -277,7 +277,7 @@ const companionThreadDetailHandler = Effect.gen(function* () {
       Effect.mapError(
         (cause) =>
           new OrchestrationGetSnapshotError({
-            message: "Failed to load companion thread detail.",
+            message: "Failed to load mobile thread detail.",
             cause,
           }),
       ),
@@ -318,7 +318,7 @@ const companionDispatchHandler = Effect.gen(function* () {
     ),
   );
 
-  if (session.role !== "owner" && !companionClientAllowedCommandTypes.has(command.type)) {
+  if (session.role !== "owner" && !mobileClientAllowedCommandTypes.has(command.type)) {
     return yield* new OrchestrationDispatchCommandError({
       message: `Client sessions cannot dispatch ${command.type}.`,
     });
@@ -329,7 +329,7 @@ const companionDispatchHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: "Failed to dispatch companion orchestration command.",
+          message: "Failed to dispatch mobile orchestration command.",
           cause,
         }),
     ),
@@ -361,7 +361,7 @@ const companionNativeShellSnapshotHandler = Effect.gen(function* () {
       Effect.mapError(
         (cause) =>
           new OrchestrationGetSnapshotError({
-            message: "Failed to load native companion shell snapshot.",
+            message: "Failed to load native mobile shell snapshot.",
             cause,
           }),
       ),
@@ -370,10 +370,10 @@ const companionNativeShellSnapshotHandler = Effect.gen(function* () {
   ]);
 
   return HttpServerResponse.jsonUnsafe(
-    toCompanionNativeShellSnapshot({
+    toDexMobileNativeShellSnapshot({
       environment,
       readModel,
-    }) satisfies CompanionNativeShellSnapshot,
+    }) satisfies DexMobileNativeShellSnapshot,
     { status: 200 },
   );
 }).pipe(
@@ -404,7 +404,7 @@ const companionNativeShellStreamHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationGetSnapshotError({
-          message: "Failed to load native companion shell snapshot.",
+          message: "Failed to load native mobile shell snapshot.",
           cause,
         }),
     ),
@@ -413,7 +413,7 @@ const companionNativeShellStreamHandler = Effect.gen(function* () {
   const encodeSnapshot = (readModel: OrchestrationReadModel) =>
     nativeShellStreamEncoder.encode(
       `${JSON.stringify(
-        toCompanionNativeShellSnapshot({
+        toDexMobileNativeShellSnapshot({
           environment,
           readModel,
         }),
@@ -427,7 +427,7 @@ const companionNativeShellStreamHandler = Effect.gen(function* () {
         Effect.mapError(
           (cause) =>
             new OrchestrationGetSnapshotError({
-              message: "Failed to refresh native companion shell snapshot.",
+              message: "Failed to refresh native mobile shell snapshot.",
               cause,
             }),
         ),
@@ -508,11 +508,11 @@ const companionNativeThreadCreateHandler = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const serverEnvironment = yield* ServerEnvironment;
-  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadCreateInput).pipe(
+  const payload = yield* HttpServerRequest.schemaBodyJson(DexMobileNativeThreadCreateInput).pipe(
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: "Invalid native companion thread create payload.",
+          message: "Invalid native mobile thread create payload.",
           cause,
         }),
     ),
@@ -520,7 +520,7 @@ const companionNativeThreadCreateHandler = Effect.gen(function* () {
 
   const threadId = ThreadId.make(crypto.randomUUID());
   const createdAt = new Date().toISOString();
-  yield* Effect.logInfo("native companion thread create requested", {
+  yield* Effect.logInfo("native mobile thread create requested", {
     role: session.role,
     threadId,
     projectId: payload.projectId,
@@ -549,14 +549,14 @@ const companionNativeThreadCreateHandler = Effect.gen(function* () {
       Effect.mapError(
         (cause) =>
           new OrchestrationDispatchCommandError({
-            message: "Failed to create native companion thread.",
+            message: "Failed to create native mobile thread.",
             cause,
           }),
       ),
     );
 
   const environment = yield* serverEnvironment.getDescriptor;
-  yield* Effect.logInfo("native companion thread created", {
+  yield* Effect.logInfo("native mobile thread created", {
     role: session.role,
     threadId,
     projectId: payload.projectId,
@@ -589,11 +589,11 @@ const companionNativeThreadConfigureHandler = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const serverEnvironment = yield* ServerEnvironment;
-  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadConfigureInput).pipe(
+  const payload = yield* HttpServerRequest.schemaBodyJson(DexMobileNativeThreadConfigureInput).pipe(
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: "Invalid native companion thread configure payload.",
+          message: "Invalid native mobile thread configure payload.",
           cause,
         }),
     ),
@@ -603,7 +603,7 @@ const companionNativeThreadConfigureHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationGetSnapshotError({
-          message: "Failed to load native companion thread snapshot.",
+          message: "Failed to load native mobile thread snapshot.",
           cause,
         }),
     ),
@@ -615,7 +615,7 @@ const companionNativeThreadConfigureHandler = Effect.gen(function* () {
 
   const thread = currentThread.value;
   const createdAt = new Date().toISOString();
-  yield* Effect.logInfo("native companion thread configure requested", {
+  yield* Effect.logInfo("native mobile thread configure requested", {
     role: session.role,
     threadId: payload.threadId,
     updatesTitle: payload.title !== undefined,
@@ -637,7 +637,7 @@ const companionNativeThreadConfigureHandler = Effect.gen(function* () {
         Effect.mapError(
           (cause) =>
             new OrchestrationDispatchCommandError({
-              message: "Failed to update native companion thread metadata.",
+              message: "Failed to update native mobile thread metadata.",
               cause,
             }),
         ),
@@ -657,7 +657,7 @@ const companionNativeThreadConfigureHandler = Effect.gen(function* () {
         Effect.mapError(
           (cause) =>
             new OrchestrationDispatchCommandError({
-              message: "Failed to update native companion runtime mode.",
+              message: "Failed to update native mobile runtime mode.",
               cause,
             }),
         ),
@@ -677,7 +677,7 @@ const companionNativeThreadConfigureHandler = Effect.gen(function* () {
         Effect.mapError(
           (cause) =>
             new OrchestrationDispatchCommandError({
-              message: "Failed to update native companion collaboration mode.",
+              message: "Failed to update native mobile collaboration mode.",
               cause,
             }),
         ),
@@ -685,7 +685,7 @@ const companionNativeThreadConfigureHandler = Effect.gen(function* () {
   }
 
   const environment = yield* serverEnvironment.getDescriptor;
-  yield* Effect.logInfo("native companion thread configured", {
+  yield* Effect.logInfo("native mobile thread configured", {
     role: session.role,
     threadId: payload.threadId,
   });
@@ -715,17 +715,17 @@ export const mobileNativeThreadConfigureRouteLayer = HttpRouter.add(
 const companionNativeThreadArchiveHandler = Effect.gen(function* () {
   const session = yield* authenticateSession;
   const orchestrationEngine = yield* OrchestrationEngineService;
-  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadArchiveInput).pipe(
+  const payload = yield* HttpServerRequest.schemaBodyJson(DexMobileNativeThreadArchiveInput).pipe(
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: "Invalid native companion thread archive payload.",
+          message: "Invalid native mobile thread archive payload.",
           cause,
         }),
     ),
   );
 
-  yield* Effect.logInfo("native companion thread archive requested", {
+  yield* Effect.logInfo("native mobile thread archive requested", {
     role: session.role,
     threadId: payload.threadId,
   });
@@ -739,13 +739,13 @@ const companionNativeThreadArchiveHandler = Effect.gen(function* () {
       Effect.mapError(
         (cause) =>
           new OrchestrationDispatchCommandError({
-            message: "Failed to archive native companion thread.",
+            message: "Failed to archive native mobile thread.",
             cause,
           }),
       ),
     );
 
-  yield* Effect.logInfo("native companion thread archived", {
+  yield* Effect.logInfo("native mobile thread archived", {
     role: session.role,
     threadId: payload.threadId,
   });
@@ -774,13 +774,13 @@ const companionNativeFileSearchHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: "Invalid native companion file search payload.",
+          message: "Invalid native mobile file search payload.",
           cause,
         }),
     ),
   );
 
-  yield* Effect.logInfo("native companion file search requested", {
+  yield* Effect.logInfo("native mobile file search requested", {
     role: session.role,
     cwd: payload.cwd,
     query: payload.query,
@@ -790,13 +790,13 @@ const companionNativeFileSearchHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: `Failed to search native companion files: ${cause.detail}`,
+          message: `Failed to search native mobile files: ${cause.detail}`,
           cause,
         }),
     ),
   );
 
-  yield* Effect.logInfo("native companion file search completed", {
+  yield* Effect.logInfo("native mobile file search completed", {
     role: session.role,
     cwd: payload.cwd,
     query: payload.query,
@@ -837,17 +837,17 @@ export const mobileNativeFileSearchRouteLayer = HttpRouter.add(
 const companionNativeSkillsHandler = Effect.gen(function* () {
   const session = yield* authenticateSession;
   const providerRegistry = yield* ProviderRegistry;
-  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeSkillsRequest).pipe(
+  const payload = yield* HttpServerRequest.schemaBodyJson(DexMobileNativeSkillsRequest).pipe(
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: "Invalid native companion skills payload.",
+          message: "Invalid native mobile skills payload.",
           cause,
         }),
     ),
   );
 
-  yield* Effect.logInfo("native companion skills requested", {
+  yield* Effect.logInfo("native mobile skills requested", {
     role: session.role,
     cwd: payload.cwd,
     forceReload: payload.forceReload === true,
@@ -858,7 +858,7 @@ const companionNativeSkillsHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationDispatchCommandError({
-          message: "Failed to load native companion skills.",
+          message: "Failed to load native mobile skills.",
           cause,
         }),
     ),
@@ -867,7 +867,7 @@ const companionNativeSkillsHandler = Effect.gen(function* () {
   const codexSkills: ReadonlyArray<ServerProviderSkill> =
     providers.find((provider) => provider.provider === "codex")?.skills ?? [];
 
-  yield* Effect.logInfo("native companion skills completed", {
+  yield* Effect.logInfo("native mobile skills completed", {
     role: session.role,
     cwd: payload.cwd,
     forceReload: payload.forceReload === true,
@@ -924,7 +924,7 @@ const companionNativeThreadStreamHandler = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new OrchestrationGetSnapshotError({
-          message: "Failed to load native companion thread snapshot.",
+          message: "Failed to load native mobile thread snapshot.",
           cause,
         }),
     ),
@@ -936,7 +936,7 @@ const companionNativeThreadStreamHandler = Effect.gen(function* () {
 
   const encodeSnapshot = (thread: OrchestrationThread) =>
     nativeThreadStreamEncoder.encode(
-      `${JSON.stringify(toCompanionNativeThreadSnapshot({ environment, thread }))}\n`,
+      `${JSON.stringify(toDexMobileNativeThreadSnapshot({ environment, thread }))}\n`,
     );
 
   const liveStream = orchestrationEngine.streamDomainEvents.pipe(
@@ -951,7 +951,7 @@ const companionNativeThreadStreamHandler = Effect.gen(function* () {
         Effect.mapError(
           (cause) =>
             new OrchestrationGetSnapshotError({
-              message: "Failed to refresh native companion thread snapshot.",
+              message: "Failed to refresh native mobile thread snapshot.",
               cause,
             }),
         ),

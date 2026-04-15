@@ -1,9 +1,9 @@
 import type {
-  CompanionNativePendingApproval,
-  CompanionNativePendingUserInput,
-  CompanionNativeSessionSummary,
-  CompanionNativeShellSnapshot,
-  CompanionNativeThreadSnapshot,
+  DexMobileNativePendingApproval,
+  DexMobileNativePendingUserInput,
+  DexMobileNativeSessionSummary,
+  DexMobileNativeShellSnapshot,
+  DexMobileNativeThreadSnapshot,
   ExecutionEnvironmentDescriptor,
   OrchestrationReadModel,
   OrchestrationThread,
@@ -55,10 +55,10 @@ function deriveAgentStatus(thread: OrchestrationThread) {
   return trimmedNonEmptyOrNull(latestState);
 }
 
-export function toCompanionNativeSessionSummary(input: {
+export function toDexMobileNativeSessionSummary(input: {
   environment: ExecutionEnvironmentDescriptor;
   thread: OrchestrationThread;
-}): CompanionNativeSessionSummary {
+}): DexMobileNativeSessionSummary {
   const { environment, thread } = input;
   const parentThreadId = deriveParentThreadId(thread);
   const model = thread.modelSelection.model.trim();
@@ -110,8 +110,8 @@ function extractRequestId(activity: OrchestrationThreadActivity) {
 
 function derivePendingApprovals(
   thread: OrchestrationThread,
-): Array<CompanionNativePendingApproval> {
-  const pendingByRequestId = new Map<string, CompanionNativePendingApproval>();
+): Array<DexMobileNativePendingApproval> {
+  const pendingByRequestId = new Map<string, DexMobileNativePendingApproval>();
 
   for (const activity of thread.activities) {
     const requestId = extractRequestId(activity);
@@ -154,8 +154,8 @@ function derivePendingApprovals(
 
 function derivePendingUserInputs(
   thread: OrchestrationThread,
-): Array<CompanionNativePendingUserInput> {
-  const pendingByRequestId = new Map<string, CompanionNativePendingUserInput>();
+): Array<DexMobileNativePendingUserInput> {
+  const pendingByRequestId = new Map<string, DexMobileNativePendingUserInput>();
 
   for (const activity of thread.activities) {
     const requestId = extractRequestId(activity);
@@ -231,14 +231,14 @@ function derivePendingUserInputs(
   return [...pendingByRequestId.values()];
 }
 
-export function toCompanionNativeThreadSnapshot(input: {
+export function toDexMobileNativeThreadSnapshot(input: {
   environment: ExecutionEnvironmentDescriptor;
   thread: OrchestrationThread;
-}): CompanionNativeThreadSnapshot {
+}): DexMobileNativeThreadSnapshot {
   const { environment, thread } = input;
   return {
     environment,
-    summary: toCompanionNativeSessionSummary({ environment, thread }),
+    summary: toDexMobileNativeSessionSummary({ environment, thread }),
     thread,
     pendingApprovals: derivePendingApprovals(thread),
     pendingUserInputs: derivePendingUserInputs(thread),
@@ -246,10 +246,10 @@ export function toCompanionNativeThreadSnapshot(input: {
   };
 }
 
-export function toCompanionNativeShellSnapshot(input: {
+export function toDexMobileNativeShellSnapshot(input: {
   environment: ExecutionEnvironmentDescriptor;
   readModel: OrchestrationReadModel;
-}): CompanionNativeShellSnapshot {
+}): DexMobileNativeShellSnapshot {
   const { environment, readModel } = input;
   return {
     environment,
@@ -262,7 +262,11 @@ export function toCompanionNativeShellSnapshot(input: {
       })),
     sessionSummaries: readModel.threads
       .filter((thread) => thread.deletedAt === null)
-      .map((thread) => toCompanionNativeSessionSummary({ environment, thread })),
+      .map((thread) => toDexMobileNativeSessionSummary({ environment, thread })),
     updatedAt: readModel.updatedAt,
   };
 }
+
+export const toCompanionNativeSessionSummary = toDexMobileNativeSessionSummary;
+export const toCompanionNativeThreadSnapshot = toDexMobileNativeThreadSnapshot;
+export const toCompanionNativeShellSnapshot = toDexMobileNativeShellSnapshot;

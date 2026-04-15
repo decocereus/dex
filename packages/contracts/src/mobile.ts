@@ -4,14 +4,14 @@ import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas";
 import { ExecutionEnvironmentDescriptor, ScopedThreadRef } from "./environment";
 import { OrchestrationThread, ProviderInteractionMode, RuntimeMode } from "./orchestration";
 
-export const CompanionNativeProjectShell = Schema.Struct({
+export const DexMobileNativeProjectShell = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
 });
-export type CompanionNativeProjectShell = typeof CompanionNativeProjectShell.Type;
+export type DexMobileNativeProjectShell = typeof DexMobileNativeProjectShell.Type;
 
-export const CompanionNativeSessionSummary = Schema.Struct({
+export const DexMobileNativeSessionSummary = Schema.Struct({
   threadRef: ScopedThreadRef,
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
@@ -38,62 +38,89 @@ export const CompanionNativeSessionSummary = Schema.Struct({
   agentDisplayLabel: Schema.NullOr(TrimmedNonEmptyString),
   agentStatus: Schema.NullOr(TrimmedNonEmptyString),
 });
-export type CompanionNativeSessionSummary = typeof CompanionNativeSessionSummary.Type;
+export type DexMobileNativeSessionSummary = typeof DexMobileNativeSessionSummary.Type;
 
-export const CompanionNativeShellSnapshot = Schema.Struct({
+export const DexMobileNativeShellSnapshot = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
-  projects: Schema.Array(CompanionNativeProjectShell),
-  sessionSummaries: Schema.Array(CompanionNativeSessionSummary),
+  projects: Schema.Array(DexMobileNativeProjectShell),
+  sessionSummaries: Schema.Array(DexMobileNativeSessionSummary),
   updatedAt: IsoDateTime,
 });
-export type CompanionNativeShellSnapshot = typeof CompanionNativeShellSnapshot.Type;
+export type DexMobileNativeShellSnapshot = typeof DexMobileNativeShellSnapshot.Type;
 
-export const CompanionNativeApprovalRequestKind = Schema.Literals([
+export const DexMobileNativeApprovalRequestKind = Schema.Literals([
   "command",
   "file-read",
   "file-change",
 ]);
-export type CompanionNativeApprovalRequestKind = typeof CompanionNativeApprovalRequestKind.Type;
+export type DexMobileNativeApprovalRequestKind = typeof DexMobileNativeApprovalRequestKind.Type;
 
-export const CompanionNativePendingApproval = Schema.Struct({
+export const DexMobileNativePendingApproval = Schema.Struct({
   requestId: TrimmedNonEmptyString,
   turnId: Schema.NullOr(TrimmedNonEmptyString),
-  requestKind: Schema.NullOr(CompanionNativeApprovalRequestKind),
+  requestKind: Schema.NullOr(DexMobileNativeApprovalRequestKind),
   requestType: Schema.NullOr(TrimmedNonEmptyString),
   detail: Schema.NullOr(Schema.String),
   createdAt: IsoDateTime,
 });
-export type CompanionNativePendingApproval = typeof CompanionNativePendingApproval.Type;
+export type DexMobileNativePendingApproval = typeof DexMobileNativePendingApproval.Type;
 
-export const CompanionNativeUserInputOption = Schema.Struct({
+export const DexMobileNativeUserInputOption = Schema.Struct({
   label: TrimmedNonEmptyString,
   description: Schema.NullOr(Schema.String),
 });
-export type CompanionNativeUserInputOption = typeof CompanionNativeUserInputOption.Type;
+export type DexMobileNativeUserInputOption = typeof DexMobileNativeUserInputOption.Type;
 
-export const CompanionNativeUserInputQuestion = Schema.Struct({
+export const DexMobileNativeUserInputQuestion = Schema.Struct({
   id: TrimmedNonEmptyString,
   header: Schema.NullOr(Schema.String),
   question: TrimmedNonEmptyString,
-  options: Schema.Array(CompanionNativeUserInputOption),
+  options: Schema.Array(DexMobileNativeUserInputOption),
   multiSelect: Schema.Boolean,
 });
-export type CompanionNativeUserInputQuestion = typeof CompanionNativeUserInputQuestion.Type;
+export type DexMobileNativeUserInputQuestion = typeof DexMobileNativeUserInputQuestion.Type;
 
-export const CompanionNativePendingUserInput = Schema.Struct({
+export const DexMobileNativePendingUserInput = Schema.Struct({
   requestId: TrimmedNonEmptyString,
   turnId: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
-  questions: Schema.Array(CompanionNativeUserInputQuestion),
+  questions: Schema.Array(DexMobileNativeUserInputQuestion),
 });
-export type CompanionNativePendingUserInput = typeof CompanionNativePendingUserInput.Type;
+export type DexMobileNativePendingUserInput = typeof DexMobileNativePendingUserInput.Type;
 
-export const CompanionNativeThreadSnapshot = Schema.Struct({
+export const DexMobileNativeThreadSnapshot = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
-  summary: CompanionNativeSessionSummary,
+  summary: DexMobileNativeSessionSummary,
   thread: OrchestrationThread,
-  pendingApprovals: Schema.Array(CompanionNativePendingApproval),
-  pendingUserInputs: Schema.Array(CompanionNativePendingUserInput),
+  pendingApprovals: Schema.Array(DexMobileNativePendingApproval),
+  pendingUserInputs: Schema.Array(DexMobileNativePendingUserInput),
   updatedAt: IsoDateTime,
 });
-export type CompanionNativeThreadSnapshot = typeof CompanionNativeThreadSnapshot.Type;
+export type DexMobileNativeThreadSnapshot = typeof DexMobileNativeThreadSnapshot.Type;
+
+export const CompanionNativeProjectShell = DexMobileNativeProjectShell;
+export type CompanionNativeProjectShell = DexMobileNativeProjectShell;
+
+export const CompanionNativeSessionSummary = DexMobileNativeSessionSummary;
+export type CompanionNativeSessionSummary = DexMobileNativeSessionSummary;
+
+export const CompanionNativeShellSnapshot = DexMobileNativeShellSnapshot;
+export type CompanionNativeShellSnapshot = DexMobileNativeShellSnapshot;
+
+export const CompanionNativeApprovalRequestKind = DexMobileNativeApprovalRequestKind;
+export type CompanionNativeApprovalRequestKind = DexMobileNativeApprovalRequestKind;
+
+export const CompanionNativePendingApproval = DexMobileNativePendingApproval;
+export type CompanionNativePendingApproval = DexMobileNativePendingApproval;
+
+export const CompanionNativeUserInputOption = DexMobileNativeUserInputOption;
+export type CompanionNativeUserInputOption = DexMobileNativeUserInputOption;
+
+export const CompanionNativeUserInputQuestion = DexMobileNativeUserInputQuestion;
+export type CompanionNativeUserInputQuestion = DexMobileNativeUserInputQuestion;
+
+export const CompanionNativePendingUserInput = DexMobileNativePendingUserInput;
+export type CompanionNativePendingUserInput = DexMobileNativePendingUserInput;
+
+export const CompanionNativeThreadSnapshot = DexMobileNativeThreadSnapshot;
+export type CompanionNativeThreadSnapshot = DexMobileNativeThreadSnapshot;
