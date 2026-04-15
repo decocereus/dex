@@ -47,6 +47,9 @@ final class DebugSettings {
 
     private init() {
         overrides = UserDefaults.standard.dictionary(forKey: key) as? [String: Bool] ?? [:]
+        if ProcessInfo.processInfo.environment["CODEXIOS_UI_TEST_ENABLE_DEBUG"] == "1" {
+            overrides["enabled"] = true
+        }
     }
 
     private func persist() {

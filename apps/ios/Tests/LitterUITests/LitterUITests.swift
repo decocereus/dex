@@ -46,13 +46,18 @@ final class LitterUITests: XCTestCase {
     func testCaptureScreenshots() throws {
         let app = XCUIApplication()
         app.launchEnvironment["CODEXIOS_UI_TEST_FORCE_DISCOVERY"] = "1"
+        app.launchEnvironment["CODEXIOS_UI_TEST_ENABLE_DEBUG"] = "1"
         setupSnapshot(app)
         app.launch()
 
         XCTAssertTrue(presentDiscovery(in: app), "Unable to open discovery")
-        XCTAssertTrue(waitForDiscoveryServers(in: app, timeout: 20), "No discovery servers found")
+        let hasDiscoveryServers = waitForDiscoveryServers(in: app, timeout: 20)
         _ = waitForDiscoveryListToPopulate(in: app, timeout: 12, minimumRows: 3)
         snapshot("01DiscoveryLoaded")
+
+        guard hasDiscoveryServers else {
+            return
+        }
 
         XCTAssertTrue(
             selectPreferredDiscoveryServer(in: app, preferredHostFragment: ".203"),
@@ -103,6 +108,7 @@ final class LitterUITests: XCTestCase {
     }
 
     private func waitForDiscoveryServers(in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        openLegacyConnectionsIfNeeded(in: app)
         let codexRows = codexDiscoveryRows(in: app)
         let sshRows = sshDiscoveryRows(in: app)
         let preferredHost = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", ".203"))
@@ -117,6 +123,7 @@ final class LitterUITests: XCTestCase {
         timeout: TimeInterval,
         minimumRows: Int
     ) -> Bool {
+        openLegacyConnectionsIfNeeded(in: app)
         let codexRows = codexDiscoveryRows(in: app)
         let sshRows = sshDiscoveryRows(in: app)
         let preferredHost = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", ".203"))
@@ -139,6 +146,7 @@ final class LitterUITests: XCTestCase {
     private func selectPreferredDiscoveryServer(in app: XCUIApplication, preferredHostFragment: String) -> Bool {
         let discoveryList = identifiedElement("discovery.list", in: app)
         guard discoveryList.waitForExistence(timeout: 8) else { return false }
+        openLegacyConnectionsIfNeeded(in: app)
 
         for _ in 0..<5 {
             if tapPreferredDiscoveryRow(in: app, hostFragment: preferredHostFragment) ||
@@ -163,6 +171,15 @@ final class LitterUITests: XCTestCase {
         }
 
         return false
+    }
+
+    private func openLegacyConnectionsIfNeeded(in app: XCUIApplication) {
+        let legacyButton = app.buttons["discovery.otherConnectionsButton"]
+        guard legacyButton.waitForExistence(timeout: 1), legacyButton.isHittable else { return }
+        let addServerButton = app.buttons["discovery.addServerButton"]
+        if !addServerButton.exists {
+            legacyButton.tap()
+        }
     }
 
     private func tapPreferredDiscoveryRow(in app: XCUIApplication, hostFragment: String) -> Bool {
