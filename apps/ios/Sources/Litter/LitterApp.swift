@@ -512,21 +512,17 @@ private struct HomeNavigationView: View {
                             try? await appModel.archiveThread(key: key)
                             await appModel.refreshSnapshot()
                         },
-                        onReconnectServer: { server in
+                        onReconnectLegacyServer: { server in
                             Task {
                                 await AppRuntimeController.shared.reconnectServer(serverId: server.id)
                             }
                         },
-                        onDisconnectServer: { serverId in
-                            if let environmentId = DexCompanionRouting.environmentId(fromServerId: serverId) {
-                                DexCompanionSessionStore.remove(environmentId: environmentId)
-                            } else {
-                                SavedServerStore.remove(serverId: serverId)
-                                Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
-                                appModel.serverBridge.disconnectServer(serverId: serverId)
-                            }
+                        onDisconnectLegacyServer: { serverId in
+                            SavedServerStore.remove(serverId: serverId)
+                            Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
+                            appModel.serverBridge.disconnectServer(serverId: serverId)
                         },
-                        onRenameServer: { serverId, newName in
+                        onRenameLegacyServer: { serverId, newName in
                             SavedServerStore.rename(serverId: serverId, newName: newName)
                             appModel.reconnectController.syncSavedServers(
                                 servers: SavedServerStore.reconnectRecords(
@@ -534,6 +530,11 @@ private struct HomeNavigationView: View {
                                 )
                             )
                             appModel.store.renameServer(serverId: serverId, displayName: newName)
+                        },
+                        onForgetDexDesktop: { serverId in
+                            if let environmentId = DexCompanionRouting.environmentId(fromServerId: serverId) {
+                                DexCompanionSessionStore.remove(environmentId: environmentId)
+                            }
                         },
                         onOpenRecording: { url in
                             navigationPath.append(.replayRecording(url))

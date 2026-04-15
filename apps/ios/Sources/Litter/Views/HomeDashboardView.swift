@@ -11,9 +11,10 @@ struct HomeDashboardView: View {
     let onConnectServer: () -> Void
     let onShowSettings: () -> Void
     var onDeleteThread: ((ThreadKey) async -> Void)? = nil
-    var onReconnectServer: ((HomeDashboardServer) -> Void)? = nil
-    var onDisconnectServer: ((String) -> Void)? = nil
-    var onRenameServer: ((String, String) -> Void)? = nil
+    var onReconnectLegacyServer: ((HomeDashboardServer) -> Void)? = nil
+    var onDisconnectLegacyServer: ((String) -> Void)? = nil
+    var onRenameLegacyServer: ((String, String) -> Void)? = nil
+    var onForgetDexDesktop: ((String) -> Void)? = nil
     var onOpenRecording: ((URL) -> Void)? = nil
     @State private var deleteTargetThread: HomeDashboardRecentSession?
     @State private var disconnectTargetServer: HomeDashboardServer?
@@ -82,7 +83,11 @@ struct HomeDashboardView: View {
             Button("Cancel", role: .cancel) { disconnectTargetServer = nil }
             Button(disconnectTargetServer?.isDexCompanion == true ? "Forget" : "Disconnect", role: .destructive) {
                 if let server = disconnectTargetServer {
-                    onDisconnectServer?(server.id)
+                    if server.isDexCompanion {
+                        onForgetDexDesktop?(server.id)
+                    } else {
+                        onDisconnectLegacyServer?(server.id)
+                    }
                 }
                 disconnectTargetServer = nil
             }
@@ -103,7 +108,7 @@ struct HomeDashboardView: View {
                 if let server = renameTargetServer {
                     let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
-                        onRenameServer?(server.id, trimmed)
+                        onRenameLegacyServer?(server.id, trimmed)
                     }
                 }
                 renameTargetServer = nil
@@ -214,7 +219,7 @@ struct HomeDashboardView: View {
                                 }
                             } else {
                                 Button {
-                                    onReconnectServer?(server)
+                                    onReconnectLegacyServer?(server)
                                 } label: {
                                     Label("Reconnect", systemImage: "arrow.clockwise")
                                 }
