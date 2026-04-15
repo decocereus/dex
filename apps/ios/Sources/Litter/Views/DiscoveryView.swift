@@ -386,7 +386,9 @@ struct DiscoveryView: View {
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
                 }
                 dexPrimarySection
-                otherConnectionsSection
+                if DebugSettings.shared.enabled {
+                    otherConnectionsSection
+                }
             }
             .scrollContentBackground(.hidden)
             .refreshable { refreshDiscovery() }
