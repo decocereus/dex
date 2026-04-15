@@ -57,7 +57,7 @@ enum DexCompanionDashboardIndex {
                         hasIpc: false,
                         health: .connected,
                         sourceLabel: browserSession.serverLabel,
-                        statusLabel: "Connected",
+                        statusLabel: "Paired",
                         statusColor: LitterTheme.accent,
                         workspaceRoot: project.workspaceRoot,
                         projectName: project.title,

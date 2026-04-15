@@ -151,6 +151,14 @@ enum HomeDashboardSupport {
             return latestThreadTitle
         }
 
+        if server.isDexCompanion {
+            let sourceLabel = server.sourceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sourceLabel.isEmpty {
+                return sourceLabel
+            }
+            return "Paired Dex desktop"
+        }
+
         if let projectName = server.projectName,
            !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return projectName
