@@ -33,17 +33,17 @@ struct ConversationInfoView: View {
 
     private var thread: AppThreadSnapshot? {
         guard let threadKey else { return nil }
-        return appModel.snapshot?.threads.first { $0.key == threadKey }
+        return appModel.threadSnapshot(for: threadKey)
     }
 
     private var server: AppServerSnapshot? {
         guard let sid = resolvedServerId else { return nil }
-        return appModel.snapshot?.servers.first { $0.serverId == sid }
+        return appModel.serverSnapshot(for: sid)
     }
 
     private var allServerThreads: [AppThreadSnapshot] {
-        guard let snapshot = appModel.snapshot, let sid = resolvedServerId else { return [] }
-        return snapshot.threads.filter { $0.key.serverId == sid }
+        guard let sid = resolvedServerId else { return [] }
+        return appModel.allThreadSnapshots().filter { $0.key.serverId == sid }
     }
 
     var body: some View {

@@ -1313,6 +1313,13 @@ final class AppModel {
         return native + dex
     }
 
+    func allThreadSnapshots() -> [AppThreadSnapshot] {
+        let native = snapshot?.threads ?? []
+        let existingKeys = Set(native.map(\.key))
+        let dex = dexThreadSnapshots.values.filter { !existingKeys.contains($0.key) }
+        return native + dex
+    }
+
     func isDexManagedServer(_ serverId: String) -> Bool {
         DexCompanionRouting.environmentId(fromServerId: serverId) != nil
     }
