@@ -983,6 +983,45 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("issues Dex mobile pairing payloads for owner sessions", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const ownerCookie = yield* getAuthenticatedSessionCookieHeader();
+      const pairingUrl = yield* getHttpServerUrl("/api/auth/mobile/pairing");
+      const response = yield* Effect.promise(() =>
+        fetch(pairingUrl, {
+          method: "POST",
+          headers: {
+            cookie: ownerCookie,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            target: {
+              httpBaseUrl: "https://example.test",
+              wsBaseUrl: "wss://example.test",
+            },
+            label: "Amartya's iPhone",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly version: number;
+        readonly environment: { readonly environmentId: string; readonly label: string };
+        readonly target: { readonly httpBaseUrl: string; readonly wsBaseUrl: string };
+        readonly pairing: { readonly credential: string; readonly label?: string };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.version, 1);
+      assert.equal(body.environment.environmentId, testEnvironmentDescriptor.environmentId);
+      assert.equal(body.target.httpBaseUrl, "https://example.test");
+      assert.equal(body.target.wsBaseUrl, "wss://example.test");
+      assert.equal(body.pairing.label, "Amartya's iPhone");
+      assert.isTrue((body.pairing.credential?.length ?? 0) > 0);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("bootstraps a web session for companion clients from a bearer session", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();
@@ -1131,6 +1170,90 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         body.sessionSummaries[0]?.threadRef.environmentId,
         testEnvironmentDescriptor.environmentId,
       );
+      assert.equal(body.sessionSummaries[0]?.threadRef.threadId, defaultThreadId);
+      assert.equal(body.sessionSummaries[0]?.title, "Default Thread");
+      assert.equal(body.sessionSummaries[0]?.preview, "Ship the mobile continuation flow.");
+      assert.equal(body.sessionSummaries[0]?.model, "gpt-5-codex");
+      assert.equal(body.sessionSummaries[0]?.modelProvider, "codex");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("serves native mobile shell snapshots with session summaries", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      const nativeThread = {
+        ...baseReadModel.threads[0]!,
+        branch: "main",
+        worktreePath: "/tmp/default-project",
+        updatedAt: now,
+        latestTurn: {
+          turnId: TurnId.make("turn-default"),
+          state: "running" as const,
+          requestedAt: now,
+          startedAt: now,
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        messages: [
+          {
+            id: MessageId.make("message-user-default"),
+            role: "user" as const,
+            text: "Ship the mobile continuation flow.",
+            turnId: TurnId.make("turn-default"),
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+        session: {
+          threadId: defaultThreadId,
+          status: "running" as const,
+          providerName: "codex",
+          runtimeMode: "full-access" as const,
+          activeTurnId: TurnId.make("turn-default"),
+          lastError: null,
+          updatedAt: now,
+        },
+      };
+      const nativeReadModel: ReturnType<typeof makeDefaultOrchestrationReadModel> = {
+        ...baseReadModel,
+        snapshotSequence: 1,
+        updatedAt: now,
+        threads: [nativeThread],
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          projectionSnapshotQuery: {
+            getSnapshot: () => Effect.succeed(nativeReadModel),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const shellUrl = yield* getHttpServerUrl("/api/mobile/native/shell");
+      const response = yield* Effect.promise(() =>
+        fetch(shellUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly environment: { readonly environmentId: string; readonly label: string };
+        readonly sessionSummaries: ReadonlyArray<{
+          readonly threadRef: { readonly environmentId: string; readonly threadId: string };
+          readonly title: string;
+          readonly preview: string;
+          readonly model: string;
+          readonly modelProvider: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.environment.environmentId, testEnvironmentDescriptor.environmentId);
+      assert.equal(body.environment.label, testEnvironmentDescriptor.label);
       assert.equal(body.sessionSummaries[0]?.threadRef.threadId, defaultThreadId);
       assert.equal(body.sessionSummaries[0]?.title, "Default Thread");
       assert.equal(body.sessionSummaries[0]?.preview, "Ship the mobile continuation flow.");
