@@ -103,7 +103,7 @@ enum LitterTheme {
     }
 
     static var usesRemodexChrome: Bool {
-        false
+        true
     }
 }
 
@@ -520,7 +520,7 @@ struct GlassRectModifier: ViewModifier {
             }
         } else {
             content
-                .background(LitterTheme.surfaceLight.opacity(0.9))
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius)
@@ -538,7 +538,7 @@ struct GlassRoundedRectModifier: ViewModifier {
             content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
             content
-                .background(LitterTheme.surfaceLight)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         }
     }
@@ -550,7 +550,7 @@ struct GlassCapsuleModifier: ViewModifier {
             content.glassEffect(.regular, in: .capsule)
         } else {
             content
-                .background(LitterTheme.surfaceLight)
+                .background(.thinMaterial, in: Capsule())
                 .clipShape(Capsule())
         }
     }
@@ -562,7 +562,7 @@ struct GlassCircleModifier: ViewModifier {
             content.glassEffect(.regular, in: .circle)
         } else {
             content
-                .background(LitterTheme.surfaceLight)
+                .background(.thinMaterial, in: Circle())
                 .clipShape(Circle())
         }
     }
