@@ -20,6 +20,14 @@ struct HomeDashboardView: View {
     @State private var renameTargetServer: HomeDashboardServer?
     @State private var renameText = ""
 
+    private var allConnectedAreDexCompanion: Bool {
+        !connectedServers.isEmpty && connectedServers.allSatisfy(\.isDexCompanion)
+    }
+
+    private var connectMacButtonTitle: String {
+        allConnectedAreDexCompanion ? "Pair Dex Desktop" : "Connect Mac"
+    }
+
     private var appVersionLabel: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String
@@ -142,8 +150,10 @@ struct HomeDashboardView: View {
                 emptyStateCard(
                     title: "No recent sessions",
                     message: connectedServers.isEmpty
-                        ? "Connect your Mac to start your first session."
-                        : "Start a new session on one of your connected servers."
+                        ? "Pair your Dex desktop to start your first session."
+                        : (allConnectedAreDexCompanion
+                            ? "Start a new session in one of your paired Dex projects."
+                            : "Start a new session on one of your connected servers.")
                 )
             } else {
                 VStack(alignment: .leading, spacing: 12) {
@@ -170,12 +180,17 @@ struct HomeDashboardView: View {
 
     private var connectedServersSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionHeader(title: "Projects", buttonTitle: "Connect Mac", systemImage: "desktopcomputer", action: onConnectServer)
+            sectionHeader(
+                title: "Projects",
+                buttonTitle: connectMacButtonTitle,
+                systemImage: "desktopcomputer",
+                action: onConnectServer
+            )
 
             if connectedServers.isEmpty {
                 emptyStateCard(
                     title: "No connected projects",
-                    message: "Connect your Mac and its projects and chats will appear here."
+                    message: "Pair your Dex desktop and its projects and chats will appear here."
                 )
             } else {
                 VStack(alignment: .leading, spacing: 10) {
@@ -291,7 +306,7 @@ struct HomeDashboardView: View {
 
     private func connectedServerRow(_ server: HomeDashboardServer) -> some View {
         SessionServerCardRow(
-            icon: server.isLocal ? "iphone" : "server.rack",
+            icon: server.isDexCompanion ? "desktopcomputer" : (server.isLocal ? "iphone" : "server.rack"),
             title: server.projectName ?? server.displayName,
             subtitle: HomeDashboardSupport.serverSubtitle(for: server),
             trailing: .statusLabel(server.statusLabel, server.statusColor)

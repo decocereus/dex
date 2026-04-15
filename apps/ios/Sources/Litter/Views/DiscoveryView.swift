@@ -2,7 +2,21 @@ import SwiftUI
 import Network
 
 struct DiscoveryView: View {
-    var onServerSelected: ((DiscoveredServer) -> Void)?
+    private struct PairedDexDesktopSelection: Identifiable {
+        struct ProjectChoice: Identifiable {
+            let session: DexCompanionBrowserSession
+            let project: DexNativeProjectShell
+
+            var id: String { project.id }
+        }
+
+        let session: DexCompanionBrowserSession
+        let projects: [ProjectChoice]
+
+        var id: String { session.environmentId }
+    }
+
+    var onServerSelected: ((DiscoverySelection) -> Void)?
     @Environment(AppModel.self) private var appModel
     @State private var discovery: NetworkDiscovery
     @State private var sshServer: DiscoveredServer?
@@ -23,6 +37,8 @@ struct DiscoveryView: View {
     @State private var renameTarget: DiscoveredServer?
     @State private var renameText = ""
     @State private var showQRPairingSheet = false
+    @State private var showLegacyConnections = false
+    @State private var pairedDesktopSelection: PairedDexDesktopSelection?
     @State private var savedDexCompanionSessions: [DexCompanionSavedSession] =
         DexCompanionSessionStore.load()
     @State private var connectionSuccessMessage: String?
@@ -31,7 +47,7 @@ struct DiscoveryView: View {
     private let initialServers: [DiscoveredServer]
 
     init(
-        onServerSelected: ((DiscoveredServer) -> Void)? = nil,
+        onServerSelected: ((DiscoverySelection) -> Void)? = nil,
         discovery: NetworkDiscovery? = nil,
         autoStartDiscovery: Bool = true,
         initialServers: [DiscoveredServer] = []
@@ -118,8 +134,7 @@ struct DiscoveryView: View {
             httpBaseUrl: session.httpBaseUrl,
             bearerToken: session.bearerToken
         )
-        guard let shellSnapshot = try? await client.fetchNativeShellSnapshot(),
-              let project = shellSnapshot.projects.first else {
+        guard let shellSnapshot = try? await client.fetchNativeShellSnapshot() else {
             LLog.warn("companion", "saved paired mac has no available projects", fields: [
                 "environmentId": savedSession.environmentId,
                 "label": savedSession.serverLabel,
@@ -127,14 +142,40 @@ struct DiscoveryView: View {
             connectError = "This Mac has no available projects yet."
             return
         }
+
+        let projectChoices = shellSnapshot.projects.map {
+            PairedDexDesktopSelection.ProjectChoice(session: session, project: $0)
+        }
+
+        guard let firstProject = projectChoices.first else {
+            LLog.warn("companion", "saved paired mac has no available projects", fields: [
+                "environmentId": savedSession.environmentId,
+                "label": savedSession.serverLabel,
+            ])
+            connectError = "This Mac has no available projects yet."
+            return
+        }
+
+        if projectChoices.count == 1 {
+            openPairedDexProject(firstProject)
+        } else {
+            pairedDesktopSelection = PairedDexDesktopSelection(
+                session: session,
+                projects: projectChoices
+            )
+        }
+    }
+
+    @MainActor
+    private func openPairedDexProject(_ choice: PairedDexDesktopSelection.ProjectChoice) {
         let pairedServer = DiscoveredServer(
             id: DexCompanionRouting.serverId(
-                for: savedSession.environmentId,
-                projectId: project.id
+                for: choice.session.environmentId,
+                projectId: choice.project.id
             ),
-            name: project.title,
-            hostname: URL(string: session.httpBaseUrl)?.host ?? "dex",
-            port: UInt16(URL(string: session.httpBaseUrl)?.port ?? 443),
+            name: choice.project.title,
+            hostname: URL(string: choice.session.httpBaseUrl)?.host ?? "dex",
+            port: UInt16(URL(string: choice.session.httpBaseUrl)?.port ?? 443),
             codexPorts: [],
             sshPort: nil,
             source: .manual,
@@ -143,11 +184,17 @@ struct DiscoveryView: View {
             metadata: [:]
         )
         LLog.info("companion", "opening saved paired project", fields: [
-            "environmentId": savedSession.environmentId,
-            "projectId": project.id,
-            "projectTitle": project.title,
+            "environmentId": choice.session.environmentId,
+            "projectId": choice.project.id,
+            "projectTitle": choice.project.title,
         ])
-        onServerSelected?(pairedServer)
+        onServerSelected?(
+            .dexProject(
+                serverId: pairedServer.id,
+                title: choice.project.title,
+                workspaceRoot: choice.project.workspaceRoot
+            )
+        )
     }
 
     var body: some View {
@@ -187,6 +234,34 @@ struct DiscoveryView: View {
                     },
                     onClose: { showQRPairingSheet = false }
                 )
+            }
+            .sheet(item: $pairedDesktopSelection) { selection in
+                NavigationStack {
+                    List(selection.projects) { choice in
+                        Button {
+                            openPairedDexProject(choice)
+                            pairedDesktopSelection = nil
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(choice.project.title)
+                                    .litterFont(.subheadline)
+                                    .foregroundColor(LitterTheme.textPrimary)
+                                Text(choice.project.workspaceRoot)
+                                    .litterFont(.caption)
+                                    .foregroundColor(LitterTheme.textSecondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .navigationTitle(selection.session.serverLabel)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { pairedDesktopSelection = nil }
+                                .foregroundColor(LitterTheme.accent)
+                        }
+                    }
+                }
             }
             .onChange(of: showManualEntry) { _, isPresented in
                 guard !isPresented, let pendingSSHServer else { return }
@@ -310,9 +385,8 @@ struct DiscoveryView: View {
                     }
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
                 }
-                serversSection
-                pairedMacsSection
-                manualSection
+                dexPrimarySection
+                otherConnectionsSection
             }
             .scrollContentBackground(.hidden)
             .refreshable { refreshDiscovery() }
@@ -410,82 +484,82 @@ struct DiscoveryView: View {
         localServers + networkServers
     }
 
-    private var serversSection: some View {
-        Section {
-            if allServers.isEmpty {
-                if discovery.isInitialLoad {
-                    HStack {
-                        ProgressView().tint(LitterTheme.textMuted).scaleEffect(0.7)
-                        Text("Scanning...")
-                            .litterFont(.footnote)
-                            .foregroundColor(LitterTheme.textMuted)
-                    }
-                    .listRowBackground(LitterTheme.surface.opacity(0.6))
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("No servers found")
-                            .litterFont(.footnote)
-                            .foregroundColor(LitterTheme.textMuted)
-                        if discovery.isScanning {
-                            Text("Still searching network...")
-                                .litterFont(.caption)
-                                .foregroundColor(LitterTheme.textSecondary)
-                        }
-                    }
-                    .listRowBackground(LitterTheme.surface.opacity(0.6))
-                }
-            } else {
-                ForEach(allServers) { server in
-                    serverRow(server)
+    private var legacyServersHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("Discovered Servers")
+                    .foregroundColor(LitterTheme.textSecondary)
+                Spacer()
+                if discovery.isScanning, let label = discovery.scanProgressLabel {
+                    Text(label)
+                        .litterFont(.caption2)
+                        .foregroundColor(LitterTheme.textMuted)
                 }
             }
-
-            if let notice = discovery.tailscaleDiscoveryNotice {
-                HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "network.slash")
-                        .foregroundColor(LitterTheme.textSecondary)
-                        .frame(width: 18, alignment: .top)
-                    Text(notice)
-                        .litterFont(.caption)
-                        .foregroundColor(LitterTheme.textSecondary)
-                }
-                .listRowBackground(LitterTheme.surface.opacity(0.6))
-            }
-        } header: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Text("Servers")
-                        .foregroundColor(LitterTheme.textSecondary)
-                    Spacer()
-                    if discovery.isScanning, let label = discovery.scanProgressLabel {
-                        Text(label)
-                            .litterFont(.caption2)
-                            .foregroundColor(LitterTheme.textMuted)
+            if discovery.isScanning {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(LitterTheme.surface)
+                            .frame(height: 3)
+                        Capsule()
+                            .fill(LitterTheme.accent)
+                            .frame(
+                                width: geo.size.width * CGFloat(discovery.scanProgress),
+                                height: 3
+                            )
+                            .animation(.easeInOut(duration: 0.25), value: discovery.scanProgress)
                     }
                 }
-                if discovery.isScanning {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(LitterTheme.surface)
-                                .frame(height: 3)
-                            Capsule()
-                                .fill(LitterTheme.accent)
-                                .frame(
-                                    width: geo.size.width * CGFloat(discovery.scanProgress),
-                                    height: 3
-                                )
-                                .animation(.easeInOut(duration: 0.25), value: discovery.scanProgress)
-                        }
-                    }
-                    .frame(height: 3)
-                }
+                .frame(height: 3)
             }
         }
-        .listRowBackground(LitterTheme.surface.opacity(0.6))
     }
 
-    private var manualSection: some View {
+    @ViewBuilder
+    private var legacyServersContent: some View {
+        legacyServersHeader
+            .padding(.vertical, 4)
+
+        if allServers.isEmpty {
+            if discovery.isInitialLoad {
+                HStack {
+                    ProgressView().tint(LitterTheme.textMuted).scaleEffect(0.7)
+                    Text("Scanning...")
+                        .litterFont(.footnote)
+                        .foregroundColor(LitterTheme.textMuted)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("No servers found")
+                        .litterFont(.footnote)
+                        .foregroundColor(LitterTheme.textMuted)
+                    if discovery.isScanning {
+                        Text("Still searching network...")
+                            .litterFont(.caption)
+                            .foregroundColor(LitterTheme.textSecondary)
+                    }
+                }
+            }
+        } else {
+            ForEach(allServers) { server in
+                serverRow(server)
+            }
+        }
+
+        if let notice = discovery.tailscaleDiscoveryNotice {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "network.slash")
+                    .foregroundColor(LitterTheme.textSecondary)
+                    .frame(width: 18, alignment: .top)
+                Text(notice)
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textSecondary)
+            }
+        }
+    }
+
+    private var dexPrimarySection: some View {
         Section {
             Button {
                 showQRPairingSheet = true
@@ -498,30 +572,16 @@ struct DiscoveryView: View {
                         .foregroundColor(LitterTheme.accent)
                 }
             }
-            .accessibilityIdentifier("discovery.scanMacQrButton")
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
-
-            Button {
-                manualConnectionMode = .ssh
-                showManualEntry = true
-            } label: {
-                HStack {
-                    Image(systemName: "plus.circle")
-                        .foregroundColor(LitterTheme.accent)
-                    Text("Add Server")
-                        .litterFont(.subheadline)
-                        .foregroundColor(LitterTheme.accent)
-                }
-            }
-            .accessibilityIdentifier("discovery.addServerButton")
-            .listRowBackground(LitterTheme.surface.opacity(0.6))
-        }
-    }
-
-    private var pairedMacsSection: some View {
-        Section {
             if savedDexCompanionSessions.isEmpty {
-                EmptyView()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Pair your Dex desktop to continue the same threads from iPhone.")
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textPrimary)
+                    Text("Your Mac stays authoritative. This iPhone becomes a trusted Dex client.")
+                        .litterFont(.caption2)
+                        .foregroundColor(LitterTheme.textSecondary)
+                }
+                .padding(.vertical, 4)
             } else {
                 ForEach(savedDexCompanionSessions) { savedSession in
                     Button {
@@ -553,11 +613,58 @@ struct DiscoveryView: View {
                 }
             }
         } header: {
-            if !savedDexCompanionSessions.isEmpty {
-                Text("Macs")
-                    .foregroundColor(LitterTheme.textSecondary)
+            Text("Dex Desktops")
+                .foregroundColor(LitterTheme.textSecondary)
+        }
+        .listRowBackground(LitterTheme.surface.opacity(0.6))
+    }
+
+    private var otherConnectionsSection: some View {
+        Section {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showLegacyConnections.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: showLegacyConnections ? "chevron.down.circle" : "chevron.right.circle")
+                        .foregroundColor(LitterTheme.textSecondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Other Connections")
+                            .litterFont(.subheadline)
+                            .foregroundColor(LitterTheme.textPrimary)
+                        Text("Legacy server discovery, SSH, and manual server setup.")
+                            .litterFont(.caption)
+                            .foregroundColor(LitterTheme.textSecondary)
+                    }
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("discovery.otherConnectionsButton")
+
+            if showLegacyConnections {
+                legacyManualSection
+                legacyServersContent
             }
         }
+        .listRowBackground(LitterTheme.surface.opacity(0.6))
+    }
+
+    private var legacyManualSection: some View {
+        Button {
+            manualConnectionMode = .ssh
+            showManualEntry = true
+        } label: {
+            HStack {
+                Image(systemName: "plus.circle")
+                    .foregroundColor(LitterTheme.accent)
+                Text("Add Server")
+                    .litterFont(.subheadline)
+                    .foregroundColor(LitterTheme.accent)
+            }
+        }
+        .accessibilityIdentifier("discovery.addServerButton")
     }
 
     // MARK: - Row
@@ -686,14 +793,14 @@ struct DiscoveryView: View {
 
     private func navigateAfterConnect(_ server: DiscoveredServer) {
         guard let snapshot = appModel.snapshot?.servers.first(where: { $0.serverId == server.id }) else {
-            onServerSelected?(server)
+            onServerSelected?(.server(serverId: server.id))
             return
         }
         if snapshot.isLocal, snapshot.account == nil {
             appState.showSettings = true
             return
         }
-        onServerSelected?(server)
+        onServerSelected?(.server(serverId: server.id))
     }
 
     @MainActor

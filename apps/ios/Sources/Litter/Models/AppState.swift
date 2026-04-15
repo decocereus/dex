@@ -1,6 +1,11 @@
 import Observation
 import SwiftUI
 
+enum DiscoverySelection: Equatable {
+    case server(serverId: String)
+    case dexProject(serverId: String, title: String, workspaceRoot: String?)
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -27,7 +32,7 @@ final class AppState {
     var reasoningEffort = ""
     var showModelSelector = false
     var showSettings = false
-    var pendingServerNavigation: String?
+    var pendingDiscoverySelection: DiscoverySelection?
     var pendingThreadNavigation: ThreadKey?
     private var threadPermissionOverrides: [String: ThreadPermissionOverride] = [:]
     var approvalPolicy: String {

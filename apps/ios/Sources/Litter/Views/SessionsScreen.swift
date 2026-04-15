@@ -301,6 +301,29 @@ struct SessionsScreen: View {
         connectedServerOptions.map(\.id)
     }
 
+    private var dexManagedConnectionCount: Int {
+        connectedServers.filter { DexCompanionRouting.environmentId(fromServerId: $0.id) != nil }.count
+    }
+
+    private var allConnectionsAreDexManaged: Bool {
+        !connectedServers.isEmpty && dexManagedConnectionCount == connectedServers.count
+    }
+
+    private var connectionCollectionLabel: String {
+        allConnectionsAreDexManaged ? "projects" : "servers"
+    }
+
+    private var connectionCountTitle: String {
+        if allConnectionsAreDexManaged {
+            return connectedServers.count == 1 ? "1 project" : "\(connectedServers.count) projects"
+        }
+        return connectedServers.count == 1 ? "1 server" : "\(connectedServers.count) servers"
+    }
+
+    private var allConnectionsFilterTitle: String {
+        allConnectionsAreDexManaged ? "All projects" : "All servers"
+    }
+
     private var nativeConnectedServerIds: [String] {
         connectedServers
             .filter { DexCompanionRouting.environmentId(fromServerId: $0.id) == nil }
@@ -439,21 +462,21 @@ struct SessionsScreen: View {
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
                 Spacer()
-                Button("Connect") {
+                Button(allConnectionsAreDexManaged ? "Pair" : "Connect") {
                     appState.showServerPicker = true
                 }
                 .accessibilityIdentifier("sessions.connectButton")
                 .litterFont(.caption)
                 .foregroundColor(LitterTheme.accent)
             } else {
-                Image(systemName: "server.rack")
+                Image(systemName: allConnectionsAreDexManaged ? "desktopcomputer" : "server.rack")
                     .foregroundColor(LitterTheme.accent)
                     .frame(width: 20)
-                Text("\(connected.count) server\(connected.count == 1 ? "" : "s")")
+                Text(connectionCountTitle)
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
-                Button("Add") {
+                Button(allConnectionsAreDexManaged ? "Pair" : "Add") {
                     appState.showServerPicker = true
                 }
                 .accessibilityIdentifier("sessions.addServerButton")
@@ -519,7 +542,7 @@ struct SessionsScreen: View {
     private var sessionFilterRow: some View {
         HStack(spacing: 8) {
             Menu {
-                Button("All servers") { selectedServerFilterId = nil }
+                Button(allConnectionsFilterTitle) { selectedServerFilterId = nil }
                 ForEach(connectedServerOptions, id: \.id) { option in
                     Button(option.name) { selectedServerFilterId = option.id }
                 }
@@ -527,7 +550,7 @@ struct SessionsScreen: View {
                 filterChip(
                     title: selectedServerFilterTitle,
                     isActive: selectedServerFilterId != nil,
-                    icon: "server.rack"
+                    icon: allConnectionsAreDexManaged ? "folder" : "server.rack"
                 )
             }
             .buttonStyle(.plain)
@@ -571,8 +594,9 @@ struct SessionsScreen: View {
     }
 
     private var selectedServerFilterTitle: String {
-        guard let selectedServerFilterId else { return "All servers" }
-        return connectedServerOptions.first(where: { $0.id == selectedServerFilterId })?.name ?? "All servers"
+        guard let selectedServerFilterId else { return allConnectionsFilterTitle }
+        return connectedServerOptions.first(where: { $0.id == selectedServerFilterId })?.name
+            ?? allConnectionsFilterTitle
     }
 
     private func filterChip(title: String, isActive: Bool, icon: String) -> some View {

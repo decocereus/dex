@@ -17,6 +17,11 @@ struct ConversationInfoView: View {
     /// Whether we're in server-only mode (no specific thread).
     private var isServerOnly: Bool { threadKey == nil }
 
+    private var isDexManagedServer: Bool {
+        guard let resolvedServerId else { return false }
+        return DexCompanionRouting.environmentId(fromServerId: resolvedServerId) != nil
+    }
+
     private var resolvedServerId: String? {
         threadKey?.serverId ?? serverId
     }
@@ -84,7 +89,7 @@ struct ConversationInfoView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text(isServerOnly ? "Server Info" : "Info")
+                Text(isServerOnly ? (isDexManagedServer ? "Project Info" : "Server Info") : "Info")
                     .litterFont(size: 16, weight: .semibold)
                     .foregroundStyle(LitterTheme.textPrimary)
             }
@@ -551,14 +556,14 @@ struct ConversationInfoView: View {
 
     private var serverInfoSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Server")
+            Text(isDexManagedServer ? "Project" : "Server")
                 .litterFont(size: 14, weight: .semibold)
                 .foregroundStyle(LitterTheme.textPrimary)
 
             if let server {
-                infoRow("Name", value: server.displayName)
-                infoRow("Address", value: "\(server.host):\(server.port)")
-                infoRow("Mode", value: server.connectionModeLabel)
+                infoRow(isDexManagedServer ? "Desktop" : "Name", value: server.displayName)
+                infoRow(isDexManagedServer ? "Endpoint" : "Address", value: "\(server.host):\(server.port)")
+                infoRow(isDexManagedServer ? "Connection" : "Mode", value: server.connectionModeLabel)
 
                 HStack(spacing: 6) {
                     Text("Health")
@@ -573,11 +578,11 @@ struct ConversationInfoView: View {
                         .foregroundStyle(LitterTheme.textSecondary)
                 }
 
-                if let account = server.account {
+                if !isDexManagedServer, let account = server.account {
                     accountRow(account)
                 }
 
-                if let models = server.availableModels, !models.isEmpty {
+                if !isDexManagedServer, let models = server.availableModels, !models.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Available Models")
                             .litterFont(size: 12)

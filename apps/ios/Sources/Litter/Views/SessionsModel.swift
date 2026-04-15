@@ -31,23 +31,21 @@ final class SessionsModel {
 
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private weak var appState: AppState?
+    @ObservationIgnored private let dexDashboardService = DexCompanionDashboardService.shared
     @ObservationIgnored private var searchQuery = ""
     @ObservationIgnored private var hasInitializedState = false
-    @ObservationIgnored private var observationGeneration = 0
+    @ObservationIgnored private var nativeObservationGeneration = 0
+    @ObservationIgnored private var dexObservationGeneration = 0
     @ObservationIgnored private var frozenMostRecentThreadOrder: [ThreadKey]?
     @ObservationIgnored private var lastPublishedSnapshot: Snapshot?
     @ObservationIgnored private var dexSnapshot = DexSnapshot(
         sessionSummaries: [],
         connectedServers: []
     )
-    @ObservationIgnored private var dexRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var dexPollingTask: Task<Void, Never>?
-
-    private static let dexPollingNanoseconds: UInt64 = 10_000_000_000
+    @ObservationIgnored private var dexDashboardConsumerActive = false
 
     deinit {
-        dexRefreshTask?.cancel()
-        dexPollingTask?.cancel()
+        deactivateDexDashboardConsumerIfNeeded()
     }
 
     func bind(appModel: AppModel, appState: AppState) {
@@ -59,8 +57,8 @@ final class SessionsModel {
         guard needsRebind || !hasInitializedState else { return }
         hasInitializedState = true
         refreshState()
-        refreshDexCompanionState()
-        startDexPolling()
+        activateDexDashboardConsumerIfNeeded()
+        refreshDexState()
     }
 
     func updateSearchQuery(_ query: String) {
@@ -85,8 +83,8 @@ final class SessionsModel {
         let previousDisplayedOrder = derivedData.allThreadKeys
         let currentSearchQuery = searchQuery
 
-        observationGeneration &+= 1
-        let generation = observationGeneration
+        nativeObservationGeneration &+= 1
+        let generation = nativeObservationGeneration
         let snapshot = withObservationTracking {
             let selectedServerFilterId = appState.sessionsSelectedServerFilterId
             let showOnlyForks = appState.sessionsShowOnlyForks
@@ -147,7 +145,7 @@ final class SessionsModel {
             )
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, self.observationGeneration == generation else { return }
+                guard let self, self.nativeObservationGeneration == generation else { return }
                 self.refreshState()
             }
         }
@@ -178,34 +176,36 @@ final class SessionsModel {
         }
     }
 
-    private func refreshDexCompanionState() {
-        dexRefreshTask?.cancel()
-        dexRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let snapshot = await DexCompanionDashboardIndex.load(limit: 200)
-            guard !Task.isCancelled else { return }
-            self.dexSnapshot = DexSnapshot(
-                sessionSummaries: snapshot.sessionSummaries,
-                connectedServers: snapshot.connectedServers
+    private func refreshDexState() {
+        dexObservationGeneration &+= 1
+        let generation = dexObservationGeneration
+        let snapshot = withObservationTracking {
+            let dexSnapshot = dexDashboardService.snapshot
+            return DexSnapshot(
+                sessionSummaries: dexSnapshot.sessionSummaries,
+                connectedServers: dexSnapshot.connectedServers
             )
-            self.refreshState()
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.dexObservationGeneration == generation else { return }
+                self.refreshDexState()
+            }
         }
+
+        self.dexSnapshot = snapshot
+        refreshState()
     }
 
-    private func startDexPolling() {
-        guard dexPollingTask == nil else { return }
-        dexPollingTask = Task { @MainActor [weak self] in
-            while let self, !Task.isCancelled {
-                do {
-                    try await Task.sleep(nanoseconds: Self.dexPollingNanoseconds)
-                } catch {
-                    break
-                }
-                guard !Task.isCancelled else { break }
-                self.refreshDexCompanionState()
-            }
-            self?.dexPollingTask = nil
-        }
+    private func activateDexDashboardConsumerIfNeeded() {
+        guard !dexDashboardConsumerActive else { return }
+        dexDashboardConsumerActive = true
+        dexDashboardService.activateConsumer()
+    }
+
+    private func deactivateDexDashboardConsumerIfNeeded() {
+        guard dexDashboardConsumerActive else { return }
+        dexDashboardConsumerActive = false
+        dexDashboardService.deactivateConsumer()
     }
 
     private func mergeSessionSummaries(

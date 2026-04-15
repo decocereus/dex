@@ -7,6 +7,12 @@ enum DexCompanionDashboardIndex {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
         let sessionSummaries: [AppSessionSummary]
+
+        static let empty = Snapshot(
+            connectedServers: [],
+            recentSessions: [],
+            sessionSummaries: []
+        )
     }
 
     static func load(limit: Int = 10) async -> Snapshot {

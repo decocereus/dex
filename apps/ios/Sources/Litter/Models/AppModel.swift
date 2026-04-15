@@ -94,8 +94,7 @@ final class AppModel {
     @ObservationIgnored private var dexPendingApprovalsByThread: [ThreadKey: [PendingApproval]] = [:]
     @ObservationIgnored private var dexPendingUserInputsByThread: [ThreadKey: [PendingUserInputRequest]] = [:]
     @ObservationIgnored private var dexAuthSessionStateByServerId: [String: DexAuthSessionState] = [:]
-    @ObservationIgnored private var dexThreadStreamTask: Task<Void, Never>?
-    @ObservationIgnored private var dexThreadStreamKey: ThreadKey?
+    @ObservationIgnored private let dexRuntime = DexCompanionRuntimeService.shared
 
     init(
         store: AppStore? = nil,
@@ -119,7 +118,7 @@ final class AppModel {
         pendingSnapshotRefreshTask?.cancel()
         pendingThreadStateTask?.cancel()
         pendingCommandRowMutationTask?.cancel()
-        dexThreadStreamTask?.cancel()
+        dexRuntime.stopThreadStream()
         dexThreadSnapshots.removeAll()
         dexServerSnapshots.removeAll()
         dexPendingApprovalsByThread.removeAll()
@@ -164,9 +163,7 @@ final class AppModel {
         pendingCommandRowMutationTask?.cancel()
         pendingCommandRowMutationTask = nil
         pendingCommandRowMutations.removeAll()
-        dexThreadStreamTask?.cancel()
-        dexThreadStreamTask = nil
-        dexThreadStreamKey = nil
+        dexRuntime.stopThreadStream()
         dexThreadSnapshots.removeAll()
         dexServerSnapshots.removeAll()
         dexPendingApprovalsByThread.removeAll()
@@ -1461,13 +1458,7 @@ final class AppModel {
     }
 
     private func dexClient(for serverId: String) -> DexCompanionClient? {
-        guard let browserSession = DexCompanionRouting.browserSession(forServerId: serverId) else {
-            return nil
-        }
-        return DexCompanionClient(
-            httpBaseUrl: browserSession.httpBaseUrl,
-            bearerToken: browserSession.bearerToken
-        )
+        dexRuntime.resolveConnection(forServerId: serverId)?.client
     }
 
     private func applyDexThreadSnapshot(
@@ -1524,103 +1515,76 @@ final class AppModel {
         }
     }
 
+    static func authoritativeDexThreadKey(
+        serverId: String,
+        nativeSnapshot: DexNativeThreadSnapshot
+    ) -> ThreadKey {
+        ThreadKey(serverId: serverId, threadId: nativeSnapshot.thread.id)
+    }
+
+    func clearDexThreadStateLocally(for key: ThreadKey) {
+        dexThreadSnapshots.removeValue(forKey: key)
+        dexPendingApprovalsByThread.removeValue(forKey: key)
+        dexPendingUserInputsByThread.removeValue(forKey: key)
+        dexRuntime.stopThreadStreamIfMatching(key)
+
+        if var snapshot, snapshot.activeThread == key {
+            snapshot.activeThread = nil
+            self.snapshot = snapshot
+        } else {
+            snapshotRevision &+= 1
+        }
+    }
+
     private func startDexThreadStreamIfNeeded(for key: ThreadKey?) {
         guard let key, DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil else {
-            if let previousKey = dexThreadStreamKey {
+            if let previousKey = dexRuntime.stopThreadStream() {
                 LLog.info("companion", "stopping dex thread stream", fields: [
                     "serverId": previousKey.serverId,
                     "threadId": previousKey.threadId,
                 ])
             }
-            dexThreadStreamTask?.cancel()
-            dexThreadStreamTask = nil
-            dexThreadStreamKey = nil
             return
         }
-        guard dexThreadStreamKey != key else { return }
-
-        dexThreadStreamTask?.cancel()
-        dexThreadStreamKey = key
-        dexThreadStreamTask = Task { [weak self] in
-            guard let self,
-                  let client = self.dexClient(for: key.serverId),
-                  let browserSession = DexCompanionRouting.browserSession(forServerId: key.serverId)
-            else {
-                return
+        let didStart = dexRuntime.startThreadStream(
+            key: key,
+            onSnapshot: { [weak self] connection, snapshot in
+                self?.applyDexThreadSnapshot(
+                    key: key,
+                    browserSession: connection.session,
+                    nativeSnapshot: snapshot
+                )
+            },
+            onNonFatalError: { [weak self] error in
+                self?.lastError = error.localizedDescription
+                LLog.error("companion", "dex thread stream failed", error: error, fields: [
+                    "serverId": key.serverId,
+                    "threadId": key.threadId,
+                ])
+            },
+            onReconnectableError: { nsError in
+                LLog.info("companion", "dex thread stream reconnecting", fields: [
+                    "serverId": key.serverId,
+                    "threadId": key.threadId,
+                    "errorCode": nsError.code,
+                ])
             }
-
-            while !Task.isCancelled {
-                do {
-                    await MainActor.run {
-                        LLog.info("companion", "starting dex thread stream", fields: [
-                            "serverId": key.serverId,
-                            "threadId": key.threadId,
-                            "httpBaseUrl": browserSession.httpBaseUrl,
-                        ])
-                    }
-                    try await client.streamNativeThreadSnapshots(threadId: key.threadId) { snapshot in
-                        guard !Task.isCancelled else { return }
-                        await MainActor.run {
-                            self.applyDexThreadSnapshot(
-                                key: key,
-                                browserSession: browserSession,
-                                nativeSnapshot: snapshot
-                            )
-                        }
-                    }
-                    await MainActor.run {
-                        LLog.info("companion", "dex thread stream completed", fields: [
-                            "serverId": key.serverId,
-                            "threadId": key.threadId,
-                        ])
-                    }
-                    break
-                } catch {
-                    if Task.isCancelled {
-                        break
-                    }
-                    let nsError = error as NSError
-                    let shouldSilence =
-                        nsError.domain == NSURLErrorDomain &&
-                        (nsError.code == NSURLErrorTimedOut ||
-                            nsError.code == NSURLErrorCannotConnectToHost ||
-                            nsError.code == NSURLErrorNetworkConnectionLost)
-                    if !shouldSilence {
-                        await MainActor.run {
-                            self.lastError = error.localizedDescription
-                            LLog.error("companion", "dex thread stream failed", error: error, fields: [
-                                "serverId": key.serverId,
-                                "threadId": key.threadId,
-                            ])
-                        }
-                    } else {
-                        await MainActor.run {
-                            LLog.info("companion", "dex thread stream reconnecting", fields: [
-                                "serverId": key.serverId,
-                                "threadId": key.threadId,
-                                "errorCode": nsError.code,
-                            ])
-                        }
-                    }
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    continue
-                }
-            }
+        )
+        if didStart, let connection = dexRuntime.resolveConnection(forServerId: key.serverId) {
+            LLog.info("companion", "starting dex thread stream", fields: [
+                "serverId": key.serverId,
+                "threadId": key.threadId,
+                "httpBaseUrl": connection.session.httpBaseUrl,
+            ])
         }
     }
 
     private func refreshDexThreadSnapshot(key: ThreadKey) async throws {
-        guard let client = dexClient(for: key.serverId),
-              let browserSession = DexCompanionRouting.browserSession(forServerId: key.serverId)
-        else {
-            return
-        }
-
-        let nativeSnapshot = try await client.fetchNativeThreadSnapshot(threadId: key.threadId)
+        let result = try await dexRuntime.fetchThreadSnapshot(key: key)
         applyDexThreadSnapshot(
             key: key,
-            browserSession: browserSession,
-            nativeSnapshot: nativeSnapshot
+            browserSession: result.connection.session,
+            nativeSnapshot: result.snapshot
         )
     }
 
@@ -1628,7 +1592,7 @@ final class AppModel {
         key: ThreadKey,
         payload: AppComposerPayload
     ) async throws -> Bool {
-        guard let client = dexClient(for: key.serverId) else {
+        guard dexClient(for: key.serverId) != nil else {
             return false
         }
 
@@ -1672,7 +1636,6 @@ final class AppModel {
         )
 
         try await configureDexThreadIfNeeded(
-            client: client,
             key: key,
             title: nil,
             modelSelection: modelSelection,
@@ -1692,24 +1655,14 @@ final class AppModel {
             "serviceTier": payload.serviceTier == .fast ? "fast" : payload.serviceTier == .flex ? "flex" : "",
         ])
 
-        var command: [String: Any] = [
-            "type": "thread.turn.start",
-            "commandId": UUID().uuidString,
-            "threadId": key.threadId,
-            "message": [
-                "messageId": UUID().uuidString,
-                "role": "user",
-                "text": text,
-                "attachments": attachments,
-            ],
-            "runtimeMode": runtimeMode,
-            "interactionMode": interactionMode,
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ]
-        if let modelSelection {
-            command["modelSelection"] = modelSelection
-        }
-        _ = try await client.dispatchCommand(command)
+        try await dexRuntime.dispatchTurnStart(
+            key: key,
+            text: text,
+            attachments: attachments,
+            modelSelection: modelSelection,
+            runtimeMode: runtimeMode,
+            interactionMode: interactionMode
+        )
         try await refreshDexThreadSnapshot(key: key)
         LLog.info("companion", "dex turn started", fields: [
             "serverId": key.serverId,
@@ -1826,14 +1779,13 @@ final class AppModel {
     }
 
     private func configureDexThreadIfNeeded(
-        client: DexCompanionClient,
         key: ThreadKey,
         title: String?,
         modelSelection: [String: Any]?,
         runtimeMode: String?,
         interactionMode: String?
     ) async throws {
-        guard let browserSession = DexCompanionRouting.browserSession(forServerId: key.serverId) else {
+        guard dexClient(for: key.serverId) != nil else {
             return
         }
 
@@ -1861,8 +1813,8 @@ final class AppModel {
             "interactionMode": interactionMode ?? currentInteractionMode,
         ])
 
-        let nativeSnapshot = try await client.configureNativeThread(
-            threadId: key.threadId,
+        let result = try await dexRuntime.configureThread(
+            key: key,
             title: title,
             modelSelection: needsModelUpdate ? modelSelection : nil,
             runtimeMode: runtimeMode != currentRuntimeMode ? runtimeMode : nil,
@@ -1870,19 +1822,17 @@ final class AppModel {
         )
         applyDexThreadSnapshot(
             key: key,
-            browserSession: browserSession,
-            nativeSnapshot: nativeSnapshot
+            browserSession: result.connection.session,
+            nativeSnapshot: result.snapshot
         )
     }
 
     func loadDexServerAuthStateIfNeeded(serverId: String) async {
-        guard dexAuthSessionStateByServerId[serverId] == nil,
-              let client = dexClient(for: serverId)
-        else {
+        guard dexAuthSessionStateByServerId[serverId] == nil else {
             return
         }
         do {
-            let nextState = try await client.fetchAuthSessionState()
+            let nextState = try await dexRuntime.fetchAuthSessionState(serverId: serverId)
             guard dexAuthSessionStateByServerId[serverId] != nextState else { return }
             dexAuthSessionStateByServerId[serverId] = nextState
             snapshotRevision &+= 1
@@ -1895,16 +1845,10 @@ final class AppModel {
         key: ThreadKey,
         turnId: String
     ) async throws -> Bool {
-        guard let client = dexClient(for: key.serverId) else {
+        guard dexClient(for: key.serverId) != nil else {
             return false
         }
-        _ = try await client.dispatchCommand([
-            "type": "thread.turn.interrupt",
-            "commandId": UUID().uuidString,
-            "threadId": key.threadId,
-            "turnId": turnId,
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ])
+        try await dexRuntime.interruptTurn(key: key, turnId: turnId)
         try await refreshDexThreadSnapshot(key: key)
         return true
     }
@@ -1918,7 +1862,7 @@ final class AppModel {
         }) else {
             return false
         }
-        guard let client = dexClient(for: entry.key.serverId) else {
+        guard dexClient(for: entry.key.serverId) != nil else {
             return false
         }
         let mappedDecision: String = switch decision {
@@ -1931,14 +1875,11 @@ final class AppModel {
         case .cancel:
             "cancel"
         }
-        _ = try await client.dispatchCommand([
-            "type": "thread.approval.respond",
-            "commandId": UUID().uuidString,
-            "threadId": entry.key.threadId,
-            "requestId": requestId,
-            "decision": mappedDecision,
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ])
+        try await dexRuntime.respondToApproval(
+            key: entry.key,
+            requestId: requestId,
+            decision: mappedDecision
+        )
         try await refreshDexThreadSnapshot(key: entry.key)
         return true
     }
@@ -1952,18 +1893,15 @@ final class AppModel {
         }) else {
             return false
         }
-        guard let client = dexClient(for: entry.key.serverId) else {
+        guard dexClient(for: entry.key.serverId) != nil else {
             return false
         }
         let mappedAnswers = Dictionary(uniqueKeysWithValues: answers.map { ($0.questionId, $0.answers) })
-        _ = try await client.dispatchCommand([
-            "type": "thread.user-input.respond",
-            "commandId": UUID().uuidString,
-            "threadId": entry.key.threadId,
-            "requestId": requestId,
-            "answers": mappedAnswers,
-            "createdAt": ISO8601DateFormatter().string(from: Date()),
-        ])
+        try await dexRuntime.respondToUserInput(
+            key: entry.key,
+            requestId: requestId,
+            answers: mappedAnswers
+        )
         try await refreshDexThreadSnapshot(key: entry.key)
         return true
     }
@@ -1972,11 +1910,10 @@ final class AppModel {
         key: ThreadKey,
         name: String
     ) async throws -> Bool {
-        guard let client = dexClient(for: key.serverId) else {
+        guard dexClient(for: key.serverId) != nil else {
             return false
         }
         try await configureDexThreadIfNeeded(
-            client: client,
             key: key,
             title: name,
             modelSelection: nil,
@@ -1987,14 +1924,11 @@ final class AppModel {
     }
 
     private func archiveDexThreadIfNeeded(key: ThreadKey) async throws -> Bool {
-        guard let client = dexClient(for: key.serverId) else {
+        guard dexClient(for: key.serverId) != nil else {
             return false
         }
-        _ = try await client.archiveNativeThread(threadId: key.threadId)
-        dexThreadSnapshots.removeValue(forKey: key)
-        dexPendingApprovalsByThread.removeValue(forKey: key)
-        dexPendingUserInputsByThread.removeValue(forKey: key)
-        snapshotRevision &+= 1
+        try await dexRuntime.archiveThread(key: key)
+        clearDexThreadStateLocally(for: key)
         return true
     }
 
@@ -2002,11 +1936,10 @@ final class AppModel {
         key: ThreadKey,
         mode: AppModeKind
     ) async throws -> Bool {
-        guard let client = dexClient(for: key.serverId) else {
+        guard dexClient(for: key.serverId) != nil else {
             return false
         }
         try await configureDexThreadIfNeeded(
-            client: client,
             key: key,
             title: nil,
             modelSelection: nil,
@@ -2021,11 +1954,10 @@ final class AppModel {
         approvalPolicy: AppAskForApproval?,
         sandboxMode: AppSandboxMode?
     ) async throws -> Bool {
-        guard let client = dexClient(for: key.serverId) else {
+        guard dexClient(for: key.serverId) != nil else {
             return false
         }
         try await configureDexThreadIfNeeded(
-            client: client,
             key: key,
             title: nil,
             modelSelection: nil,
@@ -2050,13 +1982,11 @@ final class AppModel {
         interactionMode: AppModeKind = .default
     ) async throws -> ThreadKey? {
         guard let projectId = DexCompanionRouting.projectId(fromServerId: serverId),
-              let client = dexClient(for: serverId),
-              let browserSession = DexCompanionRouting.browserSession(forServerId: serverId)
+              dexClient(for: serverId) != nil
         else {
             return nil
         }
 
-        let threadId = UUID().uuidString
         let resolvedRuntimeMode = dexRuntimeMode(
             approvalPolicy: approvalPolicy,
             sandboxMode: sandboxMode,
@@ -2072,7 +2002,6 @@ final class AppModel {
 
         LLog.info("companion", "creating dex thread", fields: [
             "serverId": serverId,
-            "threadId": threadId,
             "projectId": projectId,
             "cwd": cwd ?? "",
             "runtimeMode": resolvedRuntimeMode,
@@ -2081,25 +2010,25 @@ final class AppModel {
             "reasoningEffort": reasoningEffort ?? "",
             "fastMode": fastMode,
         ])
-        let nativeSnapshot = try await client.createNativeThread(
+        let result = try await dexRuntime.createThread(
+            serverId: serverId,
             projectId: projectId,
             title: "New Session",
             modelSelection: modelSelection,
             runtimeMode: resolvedRuntimeMode,
             interactionMode: resolvedInteractionMode,
-            branch: nil,
             worktreePath: cwd?.isEmpty == false ? cwd! : nil
         )
 
-        let key = ThreadKey(serverId: serverId, threadId: threadId)
+        let key = Self.authoritativeDexThreadKey(serverId: serverId, nativeSnapshot: result.snapshot)
         applyDexThreadSnapshot(
             key: key,
-            browserSession: browserSession,
-            nativeSnapshot: nativeSnapshot
+            browserSession: result.connection.session,
+            nativeSnapshot: result.snapshot
         )
         LLog.info("companion", "created dex thread", fields: [
             "serverId": serverId,
-            "threadId": threadId,
+            "threadId": key.threadId,
         ])
         return key
     }

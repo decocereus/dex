@@ -345,9 +345,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $bindableAppState.showServerPicker) {
             NavigationStack {
-                DiscoveryView(onServerSelected: { server in
+                DiscoveryView(onServerSelected: { selection in
                     appState.showServerPicker = false
-                    appState.pendingServerNavigation = server.id
+                    appState.pendingDiscoverySelection = selection
                 })
             }
             .environment(appState)
@@ -677,10 +677,21 @@ private struct HomeNavigationView: View {
                 replaceTopConversation(with: newKey)
             }
         }
-        .onChange(of: appState.pendingServerNavigation) { _, serverId in
-            if let serverId {
-                appState.pendingServerNavigation = nil
-                showSessions(for: serverId)
+        .onChange(of: appState.pendingDiscoverySelection) { _, selection in
+            if let selection {
+                appState.pendingDiscoverySelection = nil
+                switch selection {
+                case .server(let serverId):
+                    showSessions(for: serverId)
+                case .dexProject(let serverId, let title, let workspaceRoot):
+                    let trimmedWorkspaceRoot =
+                        workspaceRoot?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !trimmedWorkspaceRoot.isEmpty {
+                        workDir = trimmedWorkspaceRoot
+                        appState.currentCwd = trimmedWorkspaceRoot
+                    }
+                    showSessions(for: serverId, titleOverride: title)
+                }
             }
         }
         .sheet(item: $directoryPickerSheet) { _ in
@@ -1052,7 +1063,7 @@ private struct HomeNavigationView: View {
         }
     }
 
-    private func showSessions(for serverId: String) {
+    private func showSessions(for serverId: String, titleOverride: String? = nil) {
         appState.sessionsSelectedServerFilterId = serverId
         appState.sessionsShowOnlyForks = false
         appState.showModelSelector = false
@@ -1071,7 +1082,12 @@ private struct HomeNavigationView: View {
         } else if case .realtimeVoice = navigationPath.last {
             navigationPath.removeLast()
         }
-        navigationPath.append(.sessions(serverId: serverId, title: serverTitle(for: serverId)))
+        navigationPath.append(
+            .sessions(
+                serverId: serverId,
+                title: titleOverride ?? serverTitle(for: serverId)
+            )
+        )
     }
 
     private func serverTitle(for serverId: String) -> String {

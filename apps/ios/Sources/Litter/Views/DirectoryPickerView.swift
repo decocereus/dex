@@ -9,6 +9,10 @@ struct DirectoryPickerServerOption: Identifiable, Hashable {
     let name: String
     let sourceLabel: String
     let workspaceRoot: String?
+
+    var isDexProject: Bool {
+        DexCompanionRouting.environmentId(fromServerId: id) != nil
+    }
 }
 
 private struct DirectoryPathBreadcrumb: Identifiable {
@@ -371,6 +375,17 @@ struct DirectoryPickerView: View {
         DexCompanionRouting.environmentId(fromServerId: selectedServerId) != nil
     }
 
+    private var selectionSummaryLabel: String {
+        guard let selectedServerOption else {
+            return DirectoryPickerStrings.noServerSelected
+        }
+        return "\(selectedServerOption.name) • \(selectedServerOption.sourceLabel)"
+    }
+
+    private var changeSelectionTitle: String {
+        selectedServerOption?.isDexProject == true ? "Change Project" : DirectoryPickerStrings.changeServer
+    }
+
     private var fixedDirectoryPath: String? {
         guard selectedServerIsDexManaged else { return nil }
         let trimmed = selectedServerOption?.workspaceRoot?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -450,10 +465,8 @@ struct DirectoryPickerView: View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
                 Text(
-                    DirectoryPickerStrings.connectedServer(
-                        selectedServerOption.map { "\($0.name) • \($0.sourceLabel)" } ??
-                            DirectoryPickerStrings.noServerSelected
-                    )
+                    (selectedServerOption?.isDexProject == true ? "Selected Project: " : "Connected Server: ")
+                        + selectionSummaryLabel
                 )
                 .litterFont(.caption)
                 .foregroundColor(selectedServerOption == nil ? LitterTheme.textMuted : LitterTheme.textSecondary)
@@ -462,7 +475,7 @@ struct DirectoryPickerView: View {
                 Spacer()
 
                 if !servers.isEmpty {
-                    Menu(DirectoryPickerStrings.changeServer) {
+                    Menu(changeSelectionTitle) {
                         ForEach(servers) { server in
                             Button("\(server.name) • \(server.sourceLabel)") {
                                 selectedServerId = server.id
@@ -603,7 +616,7 @@ struct DirectoryPickerView: View {
                     }
                     .foregroundColor(LitterTheme.accent)
 
-                    Button(DirectoryPickerStrings.changeServer) {
+                    Button(changeSelectionTitle) {
                         selectNextServer()
                     }
                     .foregroundColor(LitterTheme.accent)
