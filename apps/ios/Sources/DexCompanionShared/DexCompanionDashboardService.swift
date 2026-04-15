@@ -10,6 +10,7 @@ final class DexCompanionDashboardService {
 
     @ObservationIgnored private var consumerCount = 0
     @ObservationIgnored private var streamTask: Task<Void, Never>?
+    @ObservationIgnored private var environmentSnapshots: [String: DexCompanionDashboardIndex.Snapshot] = [:]
 
     deinit {
         streamTask?.cancel()
@@ -27,14 +28,21 @@ final class DexCompanionDashboardService {
         guard consumerCount == 0 else { return }
         streamTask?.cancel()
         streamTask = nil
+        environmentSnapshots.removeAll()
     }
 
     func refresh() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let snapshot = await DexCompanionDashboardIndex.load(limit: 200)
+            let snapshotsByEnvironment = await DexCompanionDashboardIndex.loadSnapshotsByEnvironment(
+                limit: 200
+            )
             guard !Task.isCancelled else { return }
-            self.snapshot = snapshot
+            self.environmentSnapshots = snapshotsByEnvironment
+            self.snapshot = DexCompanionDashboardIndex.mergeSnapshots(
+                Array(snapshotsByEnvironment.values),
+                limit: 200
+            )
         }
     }
 
@@ -65,10 +73,20 @@ final class DexCompanionDashboardService {
                             )
 
                             do {
-                                try await client.streamNativeShellSnapshots { _ in
+                                try await client.streamNativeShellSnapshots { shellSnapshot in
                                     guard !Task.isCancelled else { return }
                                     await MainActor.run {
-                                        self.refresh()
+                                        let nextSnapshot = DexCompanionDashboardIndex.makeSnapshot(
+                                            savedSession: savedSession,
+                                            browserSession: browserSession,
+                                            shellSnapshot: shellSnapshot,
+                                            limit: 200
+                                        )
+                                        self.environmentSnapshots[savedSession.environmentId] = nextSnapshot
+                                        self.snapshot = DexCompanionDashboardIndex.mergeSnapshots(
+                                            Array(self.environmentSnapshots.values),
+                                            limit: 200
+                                        )
                                     }
                                 }
                             } catch {

@@ -3,12 +3,6 @@ import SwiftUI
 
 @MainActor
 enum DexCompanionDashboardIndex {
-    private struct LoadedSessionSnapshot {
-        let savedSession: DexCompanionSavedSession
-        let browserSession: DexCompanionBrowserSession
-        let shellSnapshot: DexNativeShellSnapshot
-    }
-
     struct Snapshot: Equatable {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
@@ -21,12 +15,119 @@ enum DexCompanionDashboardIndex {
         )
     }
 
-    static func load(limit: Int = 10) async -> Snapshot {
-        let savedSessions = DexCompanionSessionStore.load()
+    static func makeSnapshot(
+        savedSession: DexCompanionSavedSession,
+        browserSession: DexCompanionBrowserSession,
+        shellSnapshot: DexNativeShellSnapshot,
+        limit: Int
+    ) -> Snapshot {
         var connectedServers: [HomeDashboardServer] = []
         var recentSessions: [HomeDashboardRecentSession] = []
         var sessionSummaries: [AppSessionSummary] = []
-        let loadedSnapshots = await withTaskGroup(of: LoadedSessionSnapshot?.self) { group in
+
+        let host = URL(string: browserSession.httpBaseUrl)?.host ?? "dex"
+        let port = UInt16(URL(string: browserSession.httpBaseUrl)?.port ?? 443)
+        let sortedThreads = shellSnapshot.sessionSummaries.sorted {
+            parseDate($0.updatedAt) > parseDate($1.updatedAt)
+        }
+
+        for project in shellSnapshot.projects {
+            let serverId = DexCompanionRouting.serverId(
+                for: savedSession.environmentId,
+                projectId: project.id
+            )
+            let latestThread = sortedThreads.first(where: { $0.projectId == project.id })
+            connectedServers.append(
+                HomeDashboardServer(
+                    id: serverId,
+                    displayName: project.title,
+                    host: host,
+                    port: port,
+                    isLocal: false,
+                    hasIpc: false,
+                    health: .connected,
+                    sourceLabel: browserSession.serverLabel,
+                    statusLabel: "Paired",
+                    statusColor: LitterTheme.accent,
+                    workspaceRoot: project.workspaceRoot,
+                    projectName: project.title,
+                    latestThreadTitle: latestThread?.title
+                )
+            )
+        }
+
+        let sessionRows = sortedThreads.prefix(limit).compactMap { thread -> HomeDashboardRecentSession? in
+            let project = shellSnapshot.projects.first(where: { $0.id == thread.projectId })
+            let updatedAt = parseDate(thread.updatedAt)
+            let serverId = DexCompanionRouting.serverId(
+                for: savedSession.environmentId,
+                projectId: thread.projectId
+            )
+            let threadKey = ThreadKey(serverId: serverId, threadId: thread.threadRef.threadId)
+            sessionSummaries.append(
+                AppSessionSummary(
+                    key: threadKey,
+                    serverDisplayName: project?.title ?? browserSession.serverLabel,
+                    serverHost: host,
+                    title: thread.title,
+                    preview: thread.preview,
+                    cwd: thread.cwd ?? project?.workspaceRoot ?? "",
+                    model: thread.model,
+                    modelProvider: thread.modelProvider,
+                    parentThreadId: thread.parentThreadId,
+                    agentNickname: thread.agentNickname,
+                    agentRole: thread.agentRole,
+                    agentDisplayLabel: thread.agentDisplayLabel,
+                    agentStatus: subagentStatus(from: thread.agentStatus),
+                    updatedAt: Int64(updatedAt.timeIntervalSince1970),
+                    hasActiveTurn: thread.hasActiveTurn,
+                    isSubagent: thread.isSubagent,
+                    isFork: thread.isFork
+                )
+            )
+
+            return HomeDashboardRecentSession(
+                key: threadKey,
+                serverId: serverId,
+                serverDisplayName: project?.title ?? browserSession.serverLabel,
+                sessionTitle: thread.title,
+                cwd: thread.cwd ?? project?.workspaceRoot ?? "",
+                updatedAt: updatedAt,
+                hasTurnActive: thread.hasActiveTurn
+            )
+        }
+
+        recentSessions.append(contentsOf: sessionRows)
+
+        return Snapshot(
+            connectedServers: connectedServers,
+            recentSessions: recentSessions,
+            sessionSummaries: sessionSummaries
+        )
+    }
+
+    static func mergeSnapshots(_ snapshots: [Snapshot], limit: Int) -> Snapshot {
+        let connectedServers = snapshots.flatMap(\.connectedServers)
+        let recentSessions = snapshots.flatMap(\.recentSessions)
+        let sessionSummaries = snapshots.flatMap(\.sessionSummaries)
+
+        return Snapshot(
+            connectedServers: HomeDashboardSupport.mergeServers(
+                native: [],
+                dexCompanion: connectedServers
+            ),
+            recentSessions: HomeDashboardSupport.mergeRecentSessions(
+                native: [],
+                dexCompanion: recentSessions,
+                limit: limit
+            ),
+            sessionSummaries: sessionSummaries.sorted { $0.updatedAtDate > $1.updatedAtDate }
+        )
+    }
+
+    static func loadSnapshotsByEnvironment(limit: Int = 10) async -> [String: Snapshot] {
+        let savedSessions = DexCompanionSessionStore.load()
+        return await withTaskGroup(of: (String, Snapshot)?.self) { group in
             for savedSession in savedSessions {
                 group.addTask {
                     guard let browserSession = savedSession.makeBrowserSession() else {
@@ -45,111 +146,31 @@ enum DexCompanionDashboardIndex {
                         return nil
                     }
 
-                    return LoadedSessionSnapshot(
-                        savedSession: savedSession,
-                        browserSession: browserSession,
-                        shellSnapshot: shellSnapshot
+                    return (
+                        savedSession.environmentId,
+                        makeSnapshot(
+                            savedSession: savedSession,
+                            browserSession: browserSession,
+                            shellSnapshot: shellSnapshot,
+                            limit: limit
+                        )
                     )
                 }
             }
 
-            var results: [LoadedSessionSnapshot] = []
+            var results: [String: Snapshot] = [:]
             for await result in group {
-                if let result {
-                    results.append(result)
+                if let (environmentId, snapshot) = result {
+                    results[environmentId] = snapshot
                 }
             }
             return results
         }
+    }
 
-        for loaded in loadedSnapshots {
-            let savedSession = loaded.savedSession
-            let browserSession = loaded.browserSession
-            let shellSnapshot = loaded.shellSnapshot
-
-            let host = URL(string: browserSession.httpBaseUrl)?.host ?? "dex"
-            let port = UInt16(URL(string: browserSession.httpBaseUrl)?.port ?? 443)
-            let sortedThreads = shellSnapshot.sessionSummaries.sorted {
-                parseDate($0.updatedAt) > parseDate($1.updatedAt)
-            }
-            for project in shellSnapshot.projects {
-                let serverId = DexCompanionRouting.serverId(
-                    for: savedSession.environmentId,
-                    projectId: project.id
-                )
-                let latestThread = sortedThreads.first(where: { $0.projectId == project.id })
-                connectedServers.append(
-                    HomeDashboardServer(
-                        id: serverId,
-                        displayName: project.title,
-                        host: host,
-                        port: port,
-                        isLocal: false,
-                        hasIpc: false,
-                        health: .connected,
-                        sourceLabel: browserSession.serverLabel,
-                        statusLabel: "Paired",
-                        statusColor: LitterTheme.accent,
-                        workspaceRoot: project.workspaceRoot,
-                        projectName: project.title,
-                        latestThreadTitle: latestThread?.title
-                    )
-                )
-            }
-
-            let sessionRows = sortedThreads.prefix(limit).compactMap { thread -> HomeDashboardRecentSession? in
-                let project = shellSnapshot.projects.first(where: { $0.id == thread.projectId })
-                let updatedAt = parseDate(thread.updatedAt)
-                let serverId = DexCompanionRouting.serverId(
-                    for: savedSession.environmentId,
-                    projectId: thread.projectId
-                )
-                let threadKey = ThreadKey(serverId: serverId, threadId: thread.threadRef.threadId)
-                sessionSummaries.append(
-                    AppSessionSummary(
-                        key: threadKey,
-                        serverDisplayName: project?.title ?? browserSession.serverLabel,
-                        serverHost: host,
-                        title: thread.title,
-                        preview: thread.preview,
-                        cwd: thread.cwd ?? project?.workspaceRoot ?? "",
-                        model: thread.model,
-                        modelProvider: thread.modelProvider,
-                        parentThreadId: thread.parentThreadId,
-                        agentNickname: thread.agentNickname,
-                        agentRole: thread.agentRole,
-                        agentDisplayLabel: thread.agentDisplayLabel,
-                        agentStatus: subagentStatus(from: thread.agentStatus),
-                        updatedAt: Int64(updatedAt.timeIntervalSince1970),
-                        hasActiveTurn: thread.hasActiveTurn,
-                        isSubagent: thread.isSubagent,
-                        isFork: thread.isFork
-                    )
-                )
-
-                return HomeDashboardRecentSession(
-                    key: threadKey,
-                    serverId: serverId,
-                    serverDisplayName: project?.title ?? browserSession.serverLabel,
-                    sessionTitle: thread.title,
-                    cwd: thread.cwd ?? project?.workspaceRoot ?? "",
-                    updatedAt: updatedAt,
-                    hasTurnActive: thread.hasActiveTurn
-                )
-            }
-
-            recentSessions.append(contentsOf: sessionRows)
-        }
-
-        return Snapshot(
-            connectedServers: HomeDashboardSupport.mergeServers(native: [], dexCompanion: connectedServers),
-            recentSessions: HomeDashboardSupport.mergeRecentSessions(
-                native: [],
-                dexCompanion: recentSessions,
-                limit: limit
-            ),
-            sessionSummaries: sessionSummaries.sorted { $0.updatedAtDate > $1.updatedAtDate }
-        )
+    static func load(limit: Int = 10) async -> Snapshot {
+        let snapshotsByEnvironment = await loadSnapshotsByEnvironment(limit: limit)
+        return mergeSnapshots(Array(snapshotsByEnvironment.values), limit: limit)
     }
 
     private static func parseDate(_ value: String) -> Date {
