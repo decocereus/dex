@@ -1089,6 +1089,32 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("serves mobile shell snapshots to authenticated client bearer sessions", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const shellUrl = yield* getHttpServerUrl("/api/mobile/shell");
+      const response = yield* Effect.promise(() =>
+        fetch(shellUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly snapshotSequence: number;
+        readonly projects: ReadonlyArray<{ readonly id: string }>;
+        readonly threads: ReadonlyArray<{ readonly id: string }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.isTrue(Array.isArray(body.projects));
+      assert.isTrue(Array.isArray(body.threads));
+      assert.equal(typeof body.snapshotSequence, "number");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("serves native companion shell snapshots with session summaries", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();

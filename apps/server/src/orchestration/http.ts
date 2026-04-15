@@ -191,26 +191,34 @@ function isNativeShellStreamEvent(event: OrchestrationEvent): boolean {
   );
 }
 
+const companionShellSnapshotHandler = Effect.gen(function* () {
+  yield* authenticateSession;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationGetSnapshotError({
+          message: "Failed to load companion shell snapshot.",
+          cause,
+        }),
+    ),
+  );
+  return HttpServerResponse.jsonUnsafe(snapshot, { status: 200 });
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+);
+
 export const companionShellSnapshotRouteLayer = HttpRouter.add(
   "GET",
   "/api/companion/shell",
-  Effect.gen(function* () {
-    yield* authenticateSession;
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const snapshot = yield* projectionSnapshotQuery.getShellSnapshot().pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationGetSnapshotError({
-            message: "Failed to load companion shell snapshot.",
-            cause,
-          }),
-      ),
-    );
-    return HttpServerResponse.jsonUnsafe(snapshot, { status: 200 });
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
+  companionShellSnapshotHandler,
+);
+
+export const mobileShellSnapshotRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/mobile/shell",
+  companionShellSnapshotHandler,
 );
 
 function loadNativeThreadSnapshot(input: {
@@ -246,47 +254,55 @@ function loadNativeThreadSnapshot(input: {
   );
 }
 
+const companionThreadDetailHandler = Effect.gen(function* () {
+  yield* authenticateSession;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const requestUrl = HttpServerRequest.toURL(request);
+  if (Option.isNone(requestUrl)) {
+    return HttpServerResponse.jsonUnsafe({ error: "Invalid request URL." }, { status: 400 });
+  }
+
+  const rawThreadId = requestUrl.value.searchParams.get("threadId")?.trim();
+  if (!rawThreadId) {
+    return HttpServerResponse.jsonUnsafe(
+      { error: "Missing threadId query parameter." },
+      { status: 400 },
+    );
+  }
+
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const thread = yield* projectionSnapshotQuery
+    .getThreadDetailById(ThreadId.make(rawThreadId))
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationGetSnapshotError({
+            message: "Failed to load companion thread detail.",
+            cause,
+          }),
+      ),
+    );
+
+  if (Option.isNone(thread)) {
+    return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
+  }
+
+  return HttpServerResponse.jsonUnsafe(thread.value, { status: 200 });
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+);
+
 export const companionThreadDetailRouteLayer = HttpRouter.add(
   "GET",
   "/api/companion/thread",
-  Effect.gen(function* () {
-    yield* authenticateSession;
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const requestUrl = HttpServerRequest.toURL(request);
-    if (Option.isNone(requestUrl)) {
-      return HttpServerResponse.jsonUnsafe({ error: "Invalid request URL." }, { status: 400 });
-    }
+  companionThreadDetailHandler,
+);
 
-    const rawThreadId = requestUrl.value.searchParams.get("threadId")?.trim();
-    if (!rawThreadId) {
-      return HttpServerResponse.jsonUnsafe(
-        { error: "Missing threadId query parameter." },
-        { status: 400 },
-      );
-    }
-
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const thread = yield* projectionSnapshotQuery
-      .getThreadDetailById(ThreadId.make(rawThreadId))
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new OrchestrationGetSnapshotError({
-              message: "Failed to load companion thread detail.",
-              cause,
-            }),
-        ),
-      );
-
-    if (Option.isNone(thread)) {
-      return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
-    }
-
-    return HttpServerResponse.jsonUnsafe(thread.value, { status: 200 });
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
+export const mobileThreadDetailRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/mobile/thread",
+  companionThreadDetailHandler,
 );
 
 const companionDispatchHandler = Effect.gen(function* () {
