@@ -289,89 +289,59 @@ export const companionThreadDetailRouteLayer = HttpRouter.add(
   ),
 );
 
+const companionDispatchHandler = Effect.gen(function* () {
+  const session = yield* authenticateSession;
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const command = yield* HttpServerRequest.schemaBodyJson(ClientOrchestrationCommand).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Invalid companion orchestration command payload.",
+          cause,
+        }),
+    ),
+  );
+
+  if (session.role !== "owner" && !companionClientAllowedCommandTypes.has(command.type)) {
+    return yield* new OrchestrationDispatchCommandError({
+      message: `Client sessions cannot dispatch ${command.type}.`,
+    });
+  }
+
+  const normalizedCommand = yield* normalizeDispatchCommand(command);
+  const result = yield* orchestrationEngine.dispatch(normalizedCommand).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Failed to dispatch companion orchestration command.",
+          cause,
+        }),
+    ),
+  );
+  return HttpServerResponse.jsonUnsafe(result, { status: 200 });
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+);
+
 export const companionDispatchRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/dispatch",
-  Effect.gen(function* () {
-    const session = yield* authenticateSession;
-    const orchestrationEngine = yield* OrchestrationEngineService;
-    const command = yield* HttpServerRequest.schemaBodyJson(ClientOrchestrationCommand).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: "Invalid companion orchestration command payload.",
-            cause,
-          }),
-      ),
-    );
-
-    if (session.role !== "owner" && !companionClientAllowedCommandTypes.has(command.type)) {
-      return yield* new OrchestrationDispatchCommandError({
-        message: `Client sessions cannot dispatch ${command.type}.`,
-      });
-    }
-
-    const normalizedCommand = yield* normalizeDispatchCommand(command);
-    const result = yield* orchestrationEngine.dispatch(normalizedCommand).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: "Failed to dispatch companion orchestration command.",
-            cause,
-          }),
-      ),
-    );
-    return HttpServerResponse.jsonUnsafe(result, { status: 200 });
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
-  ),
+  companionDispatchHandler,
 );
 
-export const companionNativeShellSnapshotRouteLayer = HttpRouter.add(
-  "GET",
-  "/api/companion/native/shell",
-  Effect.gen(function* () {
-    yield* authenticateSession;
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const serverEnvironment = yield* ServerEnvironment;
-    const [readModel, environment] = yield* Effect.all([
-      projectionSnapshotQuery.getSnapshot().pipe(
-        Effect.mapError(
-          (cause) =>
-            new OrchestrationGetSnapshotError({
-              message: "Failed to load native companion shell snapshot.",
-              cause,
-            }),
-        ),
-      ),
-      serverEnvironment.getDescriptor,
-    ]);
-
-    return HttpServerResponse.jsonUnsafe(
-      toCompanionNativeShellSnapshot({
-        environment,
-        readModel,
-      }) satisfies CompanionNativeShellSnapshot,
-      { status: 200 },
-    );
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
+export const mobileDispatchRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/mobile/dispatch",
+  companionDispatchHandler,
 );
 
-export const companionNativeShellStreamRouteLayer = HttpRouter.add(
-  "GET",
-  "/api/companion/native/shell/stream",
-  Effect.gen(function* () {
-    yield* authenticateSession;
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const serverEnvironment = yield* ServerEnvironment;
-    const orchestrationEngine = yield* OrchestrationEngineService;
-    const environment = yield* serverEnvironment.getDescriptor;
-
-    const initialReadModel = yield* projectionSnapshotQuery.getSnapshot().pipe(
+const companionNativeShellSnapshotHandler = Effect.gen(function* () {
+  yield* authenticateSession;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const serverEnvironment = yield* ServerEnvironment;
+  const [readModel, environment] = yield* Effect.all([
+    projectionSnapshotQuery.getSnapshot().pipe(
       Effect.mapError(
         (cause) =>
           new OrchestrationGetSnapshotError({
@@ -379,525 +349,626 @@ export const companionNativeShellStreamRouteLayer = HttpRouter.add(
             cause,
           }),
       ),
+    ),
+    serverEnvironment.getDescriptor,
+  ]);
+
+  return HttpServerResponse.jsonUnsafe(
+    toCompanionNativeShellSnapshot({
+      environment,
+      readModel,
+    }) satisfies CompanionNativeShellSnapshot,
+    { status: 200 },
+  );
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+);
+
+export const companionNativeShellSnapshotRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/companion/native/shell",
+  companionNativeShellSnapshotHandler,
+);
+
+export const mobileNativeShellSnapshotRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/mobile/native/shell",
+  companionNativeShellSnapshotHandler,
+);
+
+const companionNativeShellStreamHandler = Effect.gen(function* () {
+  yield* authenticateSession;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const serverEnvironment = yield* ServerEnvironment;
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const environment = yield* serverEnvironment.getDescriptor;
+
+  const initialReadModel = yield* projectionSnapshotQuery.getSnapshot().pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationGetSnapshotError({
+          message: "Failed to load native companion shell snapshot.",
+          cause,
+        }),
+    ),
+  );
+
+  const encodeSnapshot = (readModel: OrchestrationReadModel) =>
+    nativeShellStreamEncoder.encode(
+      `${JSON.stringify(
+        toCompanionNativeShellSnapshot({
+          environment,
+          readModel,
+        }),
+      )}\n`,
     );
 
-    const encodeSnapshot = (readModel: OrchestrationReadModel) =>
-      nativeShellStreamEncoder.encode(
-        `${JSON.stringify(
-          toCompanionNativeShellSnapshot({
-            environment,
-            readModel,
-          }),
-        )}\n`,
-      );
-
-    const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-      Stream.filter((event) => isNativeShellStreamEvent(event)),
-      Stream.mapEffect(() =>
-        projectionSnapshotQuery.getSnapshot().pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationGetSnapshotError({
-                message: "Failed to refresh native companion shell snapshot.",
-                cause,
-              }),
-          ),
+  const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+    Stream.filter((event) => isNativeShellStreamEvent(event)),
+    Stream.mapEffect(() =>
+      projectionSnapshotQuery.getSnapshot().pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to refresh native companion shell snapshot.",
+              cause,
+            }),
         ),
       ),
-      Stream.map(encodeSnapshot),
-    );
+    ),
+    Stream.map(encodeSnapshot),
+  );
 
-    return HttpServerResponse.stream(
-      Stream.concat(Stream.succeed(encodeSnapshot(initialReadModel)), liveStream),
-      {
-        headers: {
-          "cache-control": "no-cache",
-          "content-type": "application/x-ndjson; charset=utf-8",
-        },
+  return HttpServerResponse.stream(
+    Stream.concat(Stream.succeed(encodeSnapshot(initialReadModel)), liveStream),
+    {
+      headers: {
+        "cache-control": "no-cache",
+        "content-type": "application/x-ndjson; charset=utf-8",
       },
+    },
+  );
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+);
+
+export const companionNativeShellStreamRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/companion/native/shell/stream",
+  companionNativeShellStreamHandler,
+);
+
+export const mobileNativeShellStreamRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/mobile/native/shell/stream",
+  companionNativeShellStreamHandler,
+);
+
+const companionNativeThreadSnapshotHandler = Effect.gen(function* () {
+  yield* authenticateSession;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const requestUrl = HttpServerRequest.toURL(request);
+  if (Option.isNone(requestUrl)) {
+    return HttpServerResponse.jsonUnsafe({ error: "Invalid request URL." }, { status: 400 });
+  }
+
+  const rawThreadId = requestUrl.value.searchParams.get("threadId")?.trim();
+  if (!rawThreadId) {
+    return HttpServerResponse.jsonUnsafe(
+      { error: "Missing threadId query parameter." },
+      { status: 400 },
     );
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
+  }
+
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const serverEnvironment = yield* ServerEnvironment;
+  const environment = yield* serverEnvironment.getDescriptor;
+  return yield* loadNativeThreadSnapshot({
+    threadId: ThreadId.make(rawThreadId),
+    projectionSnapshotQuery,
+    environment,
+  });
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
 );
 
 export const companionNativeThreadSnapshotRouteLayer = HttpRouter.add(
   "GET",
   "/api/companion/native/thread",
-  Effect.gen(function* () {
-    yield* authenticateSession;
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const requestUrl = HttpServerRequest.toURL(request);
-    if (Option.isNone(requestUrl)) {
-      return HttpServerResponse.jsonUnsafe({ error: "Invalid request URL." }, { status: 400 });
-    }
-
-    const rawThreadId = requestUrl.value.searchParams.get("threadId")?.trim();
-    if (!rawThreadId) {
-      return HttpServerResponse.jsonUnsafe(
-        { error: "Missing threadId query parameter." },
-        { status: 400 },
-      );
-    }
-
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const serverEnvironment = yield* ServerEnvironment;
-    const environment = yield* serverEnvironment.getDescriptor;
-    return yield* loadNativeThreadSnapshot({
-      threadId: ThreadId.make(rawThreadId),
-      projectionSnapshotQuery,
-      environment,
-    });
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
+  companionNativeThreadSnapshotHandler,
 );
 
-export const companionNativeThreadCreateRouteLayer = HttpRouter.add(
-  "POST",
-  "/api/companion/native/thread/create",
-  Effect.gen(function* () {
-    const session = yield* authenticateSession;
-    const orchestrationEngine = yield* OrchestrationEngineService;
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const serverEnvironment = yield* ServerEnvironment;
-    const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadCreateInput).pipe(
+export const mobileNativeThreadSnapshotRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/mobile/native/thread",
+  companionNativeThreadSnapshotHandler,
+);
+
+const companionNativeThreadCreateHandler = Effect.gen(function* () {
+  const session = yield* authenticateSession;
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const serverEnvironment = yield* ServerEnvironment;
+  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadCreateInput).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Invalid native companion thread create payload.",
+          cause,
+        }),
+    ),
+  );
+
+  const threadId = ThreadId.make(crypto.randomUUID());
+  const createdAt = new Date().toISOString();
+  yield* Effect.logInfo("native companion thread create requested", {
+    role: session.role,
+    threadId,
+    projectId: payload.projectId,
+    runtimeMode: payload.runtimeMode,
+    interactionMode: payload.interactionMode,
+    worktreePath: payload.worktreePath ?? null,
+  });
+  yield* orchestrationEngine
+    .dispatch({
+      type: "thread.create",
+      commandId: CommandId.make(`companion-native-create:${crypto.randomUUID()}`),
+      threadId,
+      projectId: payload.projectId,
+      title: payload.title ?? "New Session",
+      modelSelection: payload.modelSelection ?? {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+      runtimeMode: payload.runtimeMode,
+      interactionMode: payload.interactionMode,
+      branch: payload.branch ?? null,
+      worktreePath: payload.worktreePath ?? null,
+      createdAt,
+    })
+    .pipe(
       Effect.mapError(
         (cause) =>
           new OrchestrationDispatchCommandError({
-            message: "Invalid native companion thread create payload.",
+            message: "Failed to create native companion thread.",
             cause,
           }),
       ),
     );
 
-    const threadId = ThreadId.make(crypto.randomUUID());
-    const createdAt = new Date().toISOString();
-    yield* Effect.logInfo("native companion thread create requested", {
-      role: session.role,
-      threadId,
-      projectId: payload.projectId,
-      runtimeMode: payload.runtimeMode,
-      interactionMode: payload.interactionMode,
-      worktreePath: payload.worktreePath ?? null,
-    });
+  const environment = yield* serverEnvironment.getDescriptor;
+  yield* Effect.logInfo("native companion thread created", {
+    role: session.role,
+    threadId,
+    projectId: payload.projectId,
+  });
+  return yield* loadNativeThreadSnapshot({
+    threadId,
+    projectionSnapshotQuery,
+    environment,
+  });
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+);
+
+export const companionNativeThreadCreateRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/thread/create",
+  companionNativeThreadCreateHandler,
+);
+
+export const mobileNativeThreadCreateRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/mobile/native/thread/create",
+  companionNativeThreadCreateHandler,
+);
+
+const companionNativeThreadConfigureHandler = Effect.gen(function* () {
+  const session = yield* authenticateSession;
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const serverEnvironment = yield* ServerEnvironment;
+  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadConfigureInput).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Invalid native companion thread configure payload.",
+          cause,
+        }),
+    ),
+  );
+
+  const currentThread = yield* projectionSnapshotQuery.getThreadDetailById(payload.threadId).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationGetSnapshotError({
+          message: "Failed to load native companion thread snapshot.",
+          cause,
+        }),
+    ),
+  );
+
+  if (Option.isNone(currentThread)) {
+    return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
+  }
+
+  const thread = currentThread.value;
+  const createdAt = new Date().toISOString();
+  yield* Effect.logInfo("native companion thread configure requested", {
+    role: session.role,
+    threadId: payload.threadId,
+    updatesTitle: payload.title !== undefined,
+    updatesModelSelection: payload.modelSelection !== undefined,
+    runtimeMode: payload.runtimeMode ?? thread.runtimeMode,
+    interactionMode: payload.interactionMode ?? thread.interactionMode,
+  });
+
+  if (payload.title !== undefined || payload.modelSelection !== undefined) {
     yield* orchestrationEngine
       .dispatch({
-        type: "thread.create",
-        commandId: CommandId.make(`companion-native-create:${crypto.randomUUID()}`),
-        threadId,
-        projectId: payload.projectId,
-        title: payload.title ?? "New Session",
-        modelSelection: payload.modelSelection ?? {
-          provider: "codex",
-          model: "gpt-5.4",
-        },
+        type: "thread.meta.update",
+        commandId: CommandId.make(`companion-native-meta:${crypto.randomUUID()}`),
+        threadId: payload.threadId,
+        ...(payload.title !== undefined ? { title: payload.title } : {}),
+        ...(payload.modelSelection !== undefined ? { modelSelection: payload.modelSelection } : {}),
+      })
+      .pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationDispatchCommandError({
+              message: "Failed to update native companion thread metadata.",
+              cause,
+            }),
+        ),
+      );
+  }
+
+  if (payload.runtimeMode !== undefined && payload.runtimeMode !== thread.runtimeMode) {
+    yield* orchestrationEngine
+      .dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: CommandId.make(`companion-native-runtime:${crypto.randomUUID()}`),
+        threadId: payload.threadId,
         runtimeMode: payload.runtimeMode,
-        interactionMode: payload.interactionMode,
-        branch: payload.branch ?? null,
-        worktreePath: payload.worktreePath ?? null,
         createdAt,
       })
       .pipe(
         Effect.mapError(
           (cause) =>
             new OrchestrationDispatchCommandError({
-              message: "Failed to create native companion thread.",
+              message: "Failed to update native companion runtime mode.",
               cause,
             }),
         ),
       );
+  }
 
-    const environment = yield* serverEnvironment.getDescriptor;
-    yield* Effect.logInfo("native companion thread created", {
-      role: session.role,
-      threadId,
-      projectId: payload.projectId,
-    });
-    return yield* loadNativeThreadSnapshot({
-      threadId,
-      projectionSnapshotQuery,
-      environment,
-    });
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
-);
-
-export const companionNativeThreadConfigureRouteLayer = HttpRouter.add(
-  "POST",
-  "/api/companion/native/thread/configure",
-  Effect.gen(function* () {
-    const session = yield* authenticateSession;
-    const orchestrationEngine = yield* OrchestrationEngineService;
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const serverEnvironment = yield* ServerEnvironment;
-    const payload = yield* HttpServerRequest.schemaBodyJson(
-      CompanionNativeThreadConfigureInput,
-    ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: "Invalid native companion thread configure payload.",
-            cause,
-          }),
-      ),
-    );
-
-    const currentThread = yield* projectionSnapshotQuery.getThreadDetailById(payload.threadId).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationGetSnapshotError({
-            message: "Failed to load native companion thread snapshot.",
-            cause,
-          }),
-      ),
-    );
-
-    if (Option.isNone(currentThread)) {
-      return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
-    }
-
-    const thread = currentThread.value;
-    const createdAt = new Date().toISOString();
-    yield* Effect.logInfo("native companion thread configure requested", {
-      role: session.role,
-      threadId: payload.threadId,
-      updatesTitle: payload.title !== undefined,
-      updatesModelSelection: payload.modelSelection !== undefined,
-      runtimeMode: payload.runtimeMode ?? thread.runtimeMode,
-      interactionMode: payload.interactionMode ?? thread.interactionMode,
-    });
-
-    if (payload.title !== undefined || payload.modelSelection !== undefined) {
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.meta.update",
-          commandId: CommandId.make(`companion-native-meta:${crypto.randomUUID()}`),
-          threadId: payload.threadId,
-          ...(payload.title !== undefined ? { title: payload.title } : {}),
-          ...(payload.modelSelection !== undefined
-            ? { modelSelection: payload.modelSelection }
-            : {}),
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationDispatchCommandError({
-                message: "Failed to update native companion thread metadata.",
-                cause,
-              }),
-          ),
-        );
-    }
-
-    if (payload.runtimeMode !== undefined && payload.runtimeMode !== thread.runtimeMode) {
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.runtime-mode.set",
-          commandId: CommandId.make(`companion-native-runtime:${crypto.randomUUID()}`),
-          threadId: payload.threadId,
-          runtimeMode: payload.runtimeMode,
-          createdAt,
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationDispatchCommandError({
-                message: "Failed to update native companion runtime mode.",
-                cause,
-              }),
-          ),
-        );
-    }
-
-    if (
-      payload.interactionMode !== undefined &&
-      payload.interactionMode !== thread.interactionMode
-    ) {
-      yield* orchestrationEngine
-        .dispatch({
-          type: "thread.interaction-mode.set",
-          commandId: CommandId.make(`companion-native-interaction:${crypto.randomUUID()}`),
-          threadId: payload.threadId,
-          interactionMode: payload.interactionMode,
-          createdAt,
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationDispatchCommandError({
-                message: "Failed to update native companion collaboration mode.",
-                cause,
-              }),
-          ),
-        );
-    }
-
-    const environment = yield* serverEnvironment.getDescriptor;
-    yield* Effect.logInfo("native companion thread configured", {
-      role: session.role,
-      threadId: payload.threadId,
-    });
-    return yield* loadNativeThreadSnapshot({
-      threadId: payload.threadId,
-      projectionSnapshotQuery,
-      environment,
-    });
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
-);
-
-export const companionNativeThreadArchiveRouteLayer = HttpRouter.add(
-  "POST",
-  "/api/companion/native/thread/archive",
-  Effect.gen(function* () {
-    const session = yield* authenticateSession;
-    const orchestrationEngine = yield* OrchestrationEngineService;
-    const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadArchiveInput).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: "Invalid native companion thread archive payload.",
-            cause,
-          }),
-      ),
-    );
-
-    yield* Effect.logInfo("native companion thread archive requested", {
-      role: session.role,
-      threadId: payload.threadId,
-    });
-    const result = yield* orchestrationEngine
+  if (payload.interactionMode !== undefined && payload.interactionMode !== thread.interactionMode) {
+    yield* orchestrationEngine
       .dispatch({
-        type: "thread.archive",
-        commandId: CommandId.make(`companion-native-archive:${crypto.randomUUID()}`),
+        type: "thread.interaction-mode.set",
+        commandId: CommandId.make(`companion-native-interaction:${crypto.randomUUID()}`),
         threadId: payload.threadId,
+        interactionMode: payload.interactionMode,
+        createdAt,
       })
       .pipe(
         Effect.mapError(
           (cause) =>
             new OrchestrationDispatchCommandError({
-              message: "Failed to archive native companion thread.",
+              message: "Failed to update native companion collaboration mode.",
               cause,
             }),
         ),
       );
+  }
 
-    yield* Effect.logInfo("native companion thread archived", {
-      role: session.role,
+  const environment = yield* serverEnvironment.getDescriptor;
+  yield* Effect.logInfo("native companion thread configured", {
+    role: session.role,
+    threadId: payload.threadId,
+  });
+  return yield* loadNativeThreadSnapshot({
+    threadId: payload.threadId,
+    projectionSnapshotQuery,
+    environment,
+  });
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+);
+
+export const companionNativeThreadConfigureRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/thread/configure",
+  companionNativeThreadConfigureHandler,
+);
+
+export const mobileNativeThreadConfigureRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/mobile/native/thread/configure",
+  companionNativeThreadConfigureHandler,
+);
+
+const companionNativeThreadArchiveHandler = Effect.gen(function* () {
+  const session = yield* authenticateSession;
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeThreadArchiveInput).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Invalid native companion thread archive payload.",
+          cause,
+        }),
+    ),
+  );
+
+  yield* Effect.logInfo("native companion thread archive requested", {
+    role: session.role,
+    threadId: payload.threadId,
+  });
+  const result = yield* orchestrationEngine
+    .dispatch({
+      type: "thread.archive",
+      commandId: CommandId.make(`companion-native-archive:${crypto.randomUUID()}`),
       threadId: payload.threadId,
-    });
-    return HttpServerResponse.jsonUnsafe(result, { status: 200 });
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
-  ),
+    })
+    .pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationDispatchCommandError({
+            message: "Failed to archive native companion thread.",
+            cause,
+          }),
+      ),
+    );
+
+  yield* Effect.logInfo("native companion thread archived", {
+    role: session.role,
+    threadId: payload.threadId,
+  });
+  return HttpServerResponse.jsonUnsafe(result, { status: 200 });
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
+);
+
+export const companionNativeThreadArchiveRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/companion/native/thread/archive",
+  companionNativeThreadArchiveHandler,
+);
+
+export const mobileNativeThreadArchiveRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/mobile/native/thread/archive",
+  companionNativeThreadArchiveHandler,
+);
+
+const companionNativeFileSearchHandler = Effect.gen(function* () {
+  const session = yield* authenticateSession;
+  const workspaceEntries = yield* WorkspaceEntries;
+  const payload = yield* HttpServerRequest.schemaBodyJson(ProjectSearchEntriesInput).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Invalid native companion file search payload.",
+          cause,
+        }),
+    ),
+  );
+
+  yield* Effect.logInfo("native companion file search requested", {
+    role: session.role,
+    cwd: payload.cwd,
+    query: payload.query,
+    limit: payload.limit,
+  });
+  const result = yield* workspaceEntries.search(payload).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: `Failed to search native companion files: ${cause.detail}`,
+          cause,
+        }),
+    ),
+  );
+
+  yield* Effect.logInfo("native companion file search completed", {
+    role: session.role,
+    cwd: payload.cwd,
+    query: payload.query,
+    resultCount: result.entries.length,
+    truncated: result.truncated,
+  });
+  return HttpServerResponse.jsonUnsafe(
+    {
+      results: result.entries.map((entry, index) => ({
+        root: payload.cwd,
+        path: entry.path,
+        matchType: entry.kind,
+        fileName: entry.path.split("/").pop() ?? entry.path,
+        score: Math.max(result.entries.length - index, 1),
+        indices: null,
+      })),
+      truncated: result.truncated,
+    },
+    { status: 200 },
+  );
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
 );
 
 export const companionNativeFileSearchRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/native/files/search",
-  Effect.gen(function* () {
-    const session = yield* authenticateSession;
-    const workspaceEntries = yield* WorkspaceEntries;
-    const payload = yield* HttpServerRequest.schemaBodyJson(ProjectSearchEntriesInput).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: "Invalid native companion file search payload.",
-            cause,
-          }),
-      ),
-    );
+  companionNativeFileSearchHandler,
+);
 
-    yield* Effect.logInfo("native companion file search requested", {
-      role: session.role,
-      cwd: payload.cwd,
-      query: payload.query,
-      limit: payload.limit,
-    });
-    const result = yield* workspaceEntries.search(payload).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: `Failed to search native companion files: ${cause.detail}`,
-            cause,
-          }),
-      ),
-    );
+export const mobileNativeFileSearchRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/mobile/native/files/search",
+  companionNativeFileSearchHandler,
+);
 
-    yield* Effect.logInfo("native companion file search completed", {
-      role: session.role,
+const companionNativeSkillsHandler = Effect.gen(function* () {
+  const session = yield* authenticateSession;
+  const providerRegistry = yield* ProviderRegistry;
+  const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeSkillsRequest).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Invalid native companion skills payload.",
+          cause,
+        }),
+    ),
+  );
+
+  yield* Effect.logInfo("native companion skills requested", {
+    role: session.role,
+    cwd: payload.cwd,
+    forceReload: payload.forceReload === true,
+  });
+  const providers = yield* (
+    payload.forceReload === true ? providerRegistry.refresh("codex") : providerRegistry.getProviders
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationDispatchCommandError({
+          message: "Failed to load native companion skills.",
+          cause,
+        }),
+    ),
+  );
+
+  const codexSkills: ReadonlyArray<ServerProviderSkill> =
+    providers.find((provider) => provider.provider === "codex")?.skills ?? [];
+
+  yield* Effect.logInfo("native companion skills completed", {
+    role: session.role,
+    cwd: payload.cwd,
+    forceReload: payload.forceReload === true,
+    skillCount: codexSkills.length,
+  });
+
+  return HttpServerResponse.jsonUnsafe(
+    {
       cwd: payload.cwd,
-      query: payload.query,
-      resultCount: result.entries.length,
-      truncated: result.truncated,
-    });
-    return HttpServerResponse.jsonUnsafe(
-      {
-        results: result.entries.map((entry, index) => ({
-          root: payload.cwd,
-          path: entry.path,
-          matchType: entry.kind,
-          fileName: entry.path.split("/").pop() ?? entry.path,
-          score: Math.max(result.entries.length - index, 1),
-          indices: null,
-        })),
-        truncated: result.truncated,
-      },
-      { status: 200 },
-    );
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
-  ),
+      skills: codexSkills,
+    },
+    { status: 200 },
+  );
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
 );
 
 export const companionNativeSkillsRouteLayer = HttpRouter.add(
   "POST",
   "/api/companion/native/skills/list",
-  Effect.gen(function* () {
-    const session = yield* authenticateSession;
-    const providerRegistry = yield* ProviderRegistry;
-    const payload = yield* HttpServerRequest.schemaBodyJson(CompanionNativeSkillsRequest).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: "Invalid native companion skills payload.",
-            cause,
-          }),
-      ),
-    );
+  companionNativeSkillsHandler,
+);
 
-    yield* Effect.logInfo("native companion skills requested", {
-      role: session.role,
-      cwd: payload.cwd,
-      forceReload: payload.forceReload === true,
-    });
-    const providers = yield* (
-      payload.forceReload === true
-        ? providerRegistry.refresh("codex")
-        : providerRegistry.getProviders
-    ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationDispatchCommandError({
-            message: "Failed to load native companion skills.",
-            cause,
-          }),
-      ),
-    );
+export const mobileNativeSkillsRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/mobile/native/skills/list",
+  companionNativeSkillsHandler,
+);
 
-    const codexSkills: ReadonlyArray<ServerProviderSkill> =
-      providers.find((provider) => provider.provider === "codex")?.skills ?? [];
+const companionNativeThreadStreamHandler = Effect.gen(function* () {
+  yield* authenticateSession;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const requestUrl = HttpServerRequest.toURL(request);
+  if (Option.isNone(requestUrl)) {
+    return HttpServerResponse.jsonUnsafe({ error: "Invalid request URL." }, { status: 400 });
+  }
 
-    yield* Effect.logInfo("native companion skills completed", {
-      role: session.role,
-      cwd: payload.cwd,
-      forceReload: payload.forceReload === true,
-      skillCount: codexSkills.length,
-    });
-
+  const rawThreadId = requestUrl.value.searchParams.get("threadId")?.trim();
+  if (!rawThreadId) {
     return HttpServerResponse.jsonUnsafe(
-      {
-        cwd: payload.cwd,
-        skills: codexSkills,
-      },
-      { status: 200 },
+      { error: "Missing threadId query parameter." },
+      { status: 400 },
     );
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationDispatchCommandError", respondToOrchestrationHttpError),
-  ),
+  }
+
+  const threadId = ThreadId.make(rawThreadId);
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const serverEnvironment = yield* ServerEnvironment;
+  const orchestrationEngine = yield* OrchestrationEngineService;
+  const environment = yield* serverEnvironment.getDescriptor;
+
+  const initialThread = yield* projectionSnapshotQuery.getThreadDetailById(threadId).pipe(
+    Effect.mapError(
+      (cause) =>
+        new OrchestrationGetSnapshotError({
+          message: "Failed to load native companion thread snapshot.",
+          cause,
+        }),
+    ),
+  );
+
+  if (Option.isNone(initialThread)) {
+    return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
+  }
+
+  const encodeSnapshot = (thread: OrchestrationThread) =>
+    nativeThreadStreamEncoder.encode(
+      `${JSON.stringify(toCompanionNativeThreadSnapshot({ environment, thread }))}\n`,
+    );
+
+  const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+    Stream.filter(
+      (event) =>
+        event.aggregateKind === "thread" &&
+        event.aggregateId === threadId &&
+        isNativeThreadStreamEvent(event),
+    ),
+    Stream.mapEffect(() =>
+      projectionSnapshotQuery.getThreadDetailById(threadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to refresh native companion thread snapshot.",
+              cause,
+            }),
+        ),
+      ),
+    ),
+    Stream.flatMap((thread) =>
+      Option.isSome(thread) ? Stream.succeed(thread.value) : Stream.empty,
+    ),
+    Stream.map(encodeSnapshot),
+  );
+
+  return HttpServerResponse.stream(
+    Stream.concat(Stream.succeed(encodeSnapshot(initialThread.value)), liveStream),
+    {
+      headers: {
+        "cache-control": "no-cache",
+        "content-type": "application/x-ndjson; charset=utf-8",
+      },
+    },
+  );
+}).pipe(
+  Effect.catchTag("AuthError", respondToAuthError),
+  Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
 );
 
 export const companionNativeThreadStreamRouteLayer = HttpRouter.add(
   "GET",
   "/api/companion/native/thread/stream",
-  Effect.gen(function* () {
-    yield* authenticateSession;
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const requestUrl = HttpServerRequest.toURL(request);
-    if (Option.isNone(requestUrl)) {
-      return HttpServerResponse.jsonUnsafe({ error: "Invalid request URL." }, { status: 400 });
-    }
+  companionNativeThreadStreamHandler,
+);
 
-    const rawThreadId = requestUrl.value.searchParams.get("threadId")?.trim();
-    if (!rawThreadId) {
-      return HttpServerResponse.jsonUnsafe(
-        { error: "Missing threadId query parameter." },
-        { status: 400 },
-      );
-    }
-
-    const threadId = ThreadId.make(rawThreadId);
-    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    const serverEnvironment = yield* ServerEnvironment;
-    const orchestrationEngine = yield* OrchestrationEngineService;
-    const environment = yield* serverEnvironment.getDescriptor;
-
-    const initialThread = yield* projectionSnapshotQuery.getThreadDetailById(threadId).pipe(
-      Effect.mapError(
-        (cause) =>
-          new OrchestrationGetSnapshotError({
-            message: "Failed to load native companion thread snapshot.",
-            cause,
-          }),
-      ),
-    );
-
-    if (Option.isNone(initialThread)) {
-      return HttpServerResponse.jsonUnsafe({ error: "Thread not found." }, { status: 404 });
-    }
-
-    const encodeSnapshot = (thread: OrchestrationThread) =>
-      nativeThreadStreamEncoder.encode(
-        `${JSON.stringify(toCompanionNativeThreadSnapshot({ environment, thread }))}\n`,
-      );
-
-    const liveStream = orchestrationEngine.streamDomainEvents.pipe(
-      Stream.filter(
-        (event) =>
-          event.aggregateKind === "thread" &&
-          event.aggregateId === threadId &&
-          isNativeThreadStreamEvent(event),
-      ),
-      Stream.mapEffect(() =>
-        projectionSnapshotQuery.getThreadDetailById(threadId).pipe(
-          Effect.mapError(
-            (cause) =>
-              new OrchestrationGetSnapshotError({
-                message: "Failed to refresh native companion thread snapshot.",
-                cause,
-              }),
-          ),
-        ),
-      ),
-      Stream.flatMap((thread) =>
-        Option.isSome(thread) ? Stream.succeed(thread.value) : Stream.empty,
-      ),
-      Stream.map(encodeSnapshot),
-    );
-
-    return HttpServerResponse.stream(
-      Stream.concat(Stream.succeed(encodeSnapshot(initialThread.value)), liveStream),
-      {
-        headers: {
-          "cache-control": "no-cache",
-          "content-type": "application/x-ndjson; charset=utf-8",
-        },
-      },
-    );
-  }).pipe(
-    Effect.catchTag("AuthError", respondToAuthError),
-    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
-  ),
+export const mobileNativeThreadStreamRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/mobile/native/thread/stream",
+  companionNativeThreadStreamHandler,
 );

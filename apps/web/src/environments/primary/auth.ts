@@ -268,7 +268,7 @@ export async function createServerCompanionPairingPayload(input: {
     },
     ...(input.label?.trim() ? { label: input.label.trim() } : {}),
   };
-  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/companion/pairing"), {
+  const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/mobile/pairing"), {
     body: JSON.stringify(payload),
     credentials: "include",
     headers: {

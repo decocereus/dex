@@ -205,71 +205,85 @@ export const authPairingCredentialRouteLayer = HttpRouter.add(
   }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error))),
 );
 
+const authCompanionPairingPayloadHandler = Effect.gen(function* () {
+  const { serverAuth } = yield* authenticateOwnerSession;
+  const serverEnvironment = yield* ServerEnvironment;
+  const payload = yield* HttpServerRequest.schemaBodyJson(CreateCompanionPairingPayloadInput).pipe(
+    Effect.mapError(
+      (cause) =>
+        new AuthError({
+          message: "Invalid companion pairing payload request.",
+          status: 400,
+          cause,
+        }),
+    ),
+  );
+  const [descriptor, authDescriptor, pairing] = yield* Effect.all([
+    serverEnvironment.getDescriptor,
+    serverAuth.getDescriptor(),
+    serverAuth.issuePairingCredential(payload.label ? { label: payload.label } : {}),
+  ]);
+  return HttpServerResponse.jsonUnsafe(
+    {
+      version: 1,
+      issuedAt: DateTime.fromDateUnsafe(new Date()),
+      environment: descriptor,
+      auth: authDescriptor,
+      target: payload.target,
+      pairing,
+    } satisfies CompanionPairingPayload,
+    { status: 200 },
+  );
+}).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error)));
+
 export const authCompanionPairingPayloadRouteLayer = HttpRouter.add(
   "POST",
   "/api/auth/companion/pairing",
-  Effect.gen(function* () {
-    const { serverAuth } = yield* authenticateOwnerSession;
-    const serverEnvironment = yield* ServerEnvironment;
-    const payload = yield* HttpServerRequest.schemaBodyJson(
-      CreateCompanionPairingPayloadInput,
-    ).pipe(
-      Effect.mapError(
-        (cause) =>
-          new AuthError({
-            message: "Invalid companion pairing payload request.",
-            status: 400,
-            cause,
-          }),
-      ),
-    );
-    const [descriptor, authDescriptor, pairing] = yield* Effect.all([
-      serverEnvironment.getDescriptor,
-      serverAuth.getDescriptor(),
-      serverAuth.issuePairingCredential(payload.label ? { label: payload.label } : {}),
-    ]);
-    return HttpServerResponse.jsonUnsafe(
-      {
-        version: 1,
-        issuedAt: DateTime.fromDateUnsafe(new Date()),
-        environment: descriptor,
-        auth: authDescriptor,
-        target: payload.target,
-        pairing,
-      } satisfies CompanionPairingPayload,
-      { status: 200 },
-    );
-  }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error))),
+  authCompanionPairingPayloadHandler,
 );
+
+export const authMobilePairingPayloadRouteLayer = HttpRouter.add(
+  "POST",
+  "/api/auth/mobile/pairing",
+  authCompanionPairingPayloadHandler,
+);
+
+const authCompanionWebSessionHandler = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const serverAuth = yield* ServerAuth;
+  const sessions = yield* SessionCredentialService;
+  const session = yield* serverAuth.authenticateHttpRequest(request);
+  const credential = parseAuthenticatedRequestCredential(request, sessions.cookieName);
+  if (!credential) {
+    return yield* new AuthError({
+      message: "Authentication required.",
+      status: 401,
+    });
+  }
+  const requestUrl = HttpServerRequest.toURL(request);
+  const nextPath = normalizeCompanionWebPath(
+    Option.isSome(requestUrl) ? requestUrl.value.searchParams.get("path") : null,
+  );
+  return yield* HttpServerResponse.redirect(nextPath, { status: 302 }).pipe(
+    HttpServerResponse.setCookie(sessions.cookieName, credential, {
+      ...(session.expiresAt ? { expires: DateTime.toDate(session.expiresAt) } : {}),
+      httpOnly: true,
+      path: "/",
+      sameSite: "lax",
+    }),
+  );
+}).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error)));
 
 export const authCompanionWebSessionRouteLayer = HttpRouter.add(
   "GET",
   "/api/auth/companion/web-session",
-  Effect.gen(function* () {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const serverAuth = yield* ServerAuth;
-    const sessions = yield* SessionCredentialService;
-    const session = yield* serverAuth.authenticateHttpRequest(request);
-    const credential = parseAuthenticatedRequestCredential(request, sessions.cookieName);
-    if (!credential) {
-      return yield* new AuthError({
-        message: "Authentication required.",
-        status: 401,
-      });
-    }
-    const requestUrl = HttpServerRequest.toURL(request);
-    const nextPath = normalizeCompanionWebPath(
-      Option.isSome(requestUrl) ? requestUrl.value.searchParams.get("path") : null,
-    );
-    return yield* HttpServerResponse.redirect(nextPath, { status: 302 }).pipe(
-      HttpServerResponse.setCookie(sessions.cookieName, credential, {
-        ...(session.expiresAt ? { expires: DateTime.toDate(session.expiresAt) } : {}),
-        httpOnly: true,
-        path: "/",
-        sameSite: "lax",
-      }),
-    );
-  }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error))),
+  authCompanionWebSessionHandler,
+);
+
+export const authMobileWebSessionRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/auth/mobile/web-session",
+  authCompanionWebSessionHandler,
 );
 
 const authenticateOwnerSession = Effect.gen(function* () {

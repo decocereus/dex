@@ -25,7 +25,7 @@ struct DexCompanionWebView: UIViewRepresentable {
         guard let baseUrl = URL(string: session.httpBaseUrl) else {
             return
         }
-        let bootstrapPath = "api/auth/companion/web-session"
+        let bootstrapPath = "api/auth/mobile/web-session"
         let desiredPath = normalizedInitialPath()
         guard var components = URLComponents(
             url: baseUrl.appending(path: bootstrapPath),

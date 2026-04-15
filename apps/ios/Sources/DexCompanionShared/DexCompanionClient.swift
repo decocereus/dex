@@ -250,15 +250,15 @@ struct DexCompanionClient {
     let bearerToken: String
 
     func fetchShellSnapshot() async throws -> DexCompanionShellSnapshot {
-        try await request(path: "api/companion/shell", method: "GET")
+        try await request(path: "api/mobile/shell", method: "GET")
     }
 
     func fetchThreadDetail(threadId: String) async throws -> DexCompanionThreadDetail {
-        try await request(path: "api/companion/thread", queryItems: [URLQueryItem(name: "threadId", value: threadId)], method: "GET")
+        try await request(path: "api/mobile/thread", queryItems: [URLQueryItem(name: "threadId", value: threadId)], method: "GET")
     }
 
     func fetchNativeShellSnapshot() async throws -> DexNativeShellSnapshot {
-        try await request(path: "api/companion/native/shell", method: "GET")
+        try await request(path: "api/mobile/native/shell", method: "GET")
     }
 
     func streamNativeShellSnapshots(
@@ -267,7 +267,7 @@ struct DexCompanionClient {
         guard let baseUrl = URL(string: httpBaseUrl) else {
             throw DexCompanionClientError.invalidBaseUrl
         }
-        let url = baseUrl.appending(path: "api/companion/native/shell/stream")
+        let url = baseUrl.appending(path: "api/mobile/native/shell/stream")
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -296,7 +296,7 @@ struct DexCompanionClient {
 
     func fetchNativeThreadSnapshot(threadId: String) async throws -> DexNativeThreadSnapshot {
         try await request(
-            path: "api/companion/native/thread",
+            path: "api/mobile/native/thread",
             queryItems: [URLQueryItem(name: "threadId", value: threadId)],
             method: "GET"
         )
@@ -333,7 +333,7 @@ struct DexCompanionClient {
             requestBody["worktreePath"] = worktreePath
         }
         return try await request(
-            path: "api/companion/native/thread/create",
+            path: "api/mobile/native/thread/create",
             method: "POST",
             bodyData: try JSONSerialization.data(withJSONObject: requestBody)
         )
@@ -360,7 +360,7 @@ struct DexCompanionClient {
             requestBody["interactionMode"] = interactionMode
         }
         return try await request(
-            path: "api/companion/native/thread/configure",
+            path: "api/mobile/native/thread/configure",
             method: "POST",
             bodyData: try JSONSerialization.data(withJSONObject: requestBody)
         )
@@ -368,7 +368,7 @@ struct DexCompanionClient {
 
     func archiveNativeThread(threadId: String) async throws -> DexCompanionDispatchResponse {
         try await request(
-            path: "api/companion/native/thread/archive",
+            path: "api/mobile/native/thread/archive",
             method: "POST",
             bodyData: try JSONSerialization.data(withJSONObject: ["threadId": threadId])
         )
@@ -380,7 +380,7 @@ struct DexCompanionClient {
         limit: Int = 50
     ) async throws -> [FileSearchResult] {
         let response: DexNativeFileSearchResponse = try await request(
-            path: "api/companion/native/files/search",
+            path: "api/mobile/native/files/search",
             method: "POST",
             bodyData: try JSONEncoder().encode(
                 DexNativeFileSearchRequest(cwd: cwd, query: query, limit: limit)
@@ -403,7 +403,7 @@ struct DexCompanionClient {
         forceReload: Bool
     ) async throws -> [SkillMetadata] {
         let response: DexNativeSkillsResponse = try await request(
-            path: "api/companion/native/skills/list",
+            path: "api/mobile/native/skills/list",
             method: "POST",
             bodyData: try JSONEncoder().encode(
                 DexNativeSkillsRequest(cwd: cwd, forceReload: forceReload)
@@ -438,7 +438,7 @@ struct DexCompanionClient {
             throw DexCompanionClientError.invalidBaseUrl
         }
         var components = URLComponents(
-            url: baseUrl.appending(path: "api/companion/native/thread/stream"),
+            url: baseUrl.appending(path: "api/mobile/native/thread/stream"),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [URLQueryItem(name: "threadId", value: threadId)]
@@ -474,7 +474,7 @@ struct DexCompanionClient {
     func dispatchCommand(_ payload: [String: Any]) async throws -> DexCompanionDispatchResponse {
         let bodyData = try JSONSerialization.data(withJSONObject: payload)
         return try await request(
-            path: "api/companion/dispatch",
+            path: "api/mobile/dispatch",
             method: "POST",
             bodyData: bodyData
         )
