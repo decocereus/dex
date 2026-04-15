@@ -261,6 +261,39 @@ struct DexCompanionClient {
         try await request(path: "api/companion/native/shell", method: "GET")
     }
 
+    func streamNativeShellSnapshots(
+        onSnapshot: @escaping @Sendable (DexNativeShellSnapshot) async -> Void
+    ) async throws {
+        guard let baseUrl = URL(string: httpBaseUrl) else {
+            throw DexCompanionClientError.invalidBaseUrl
+        }
+        let url = baseUrl.appending(path: "api/companion/native/shell/stream")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(bearerToken)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 60 * 60 * 24
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw DexCompanionClientError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw DexCompanionClientError.requestFailed("Dex shell stream failed.")
+        }
+
+        let decoder = JSONDecoder()
+        for try await line in bytes.lines {
+            if Task.isCancelled { break }
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { continue }
+            guard let snapshot = try? decoder.decode(DexNativeShellSnapshot.self, from: data) else {
+                continue
+            }
+            await onSnapshot(snapshot)
+        }
+    }
+
     func fetchNativeThreadSnapshot(threadId: String) async throws -> DexNativeThreadSnapshot {
         try await request(
             path: "api/companion/native/thread",

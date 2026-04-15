@@ -133,6 +133,7 @@ const companionClientAllowedCommandTypes = new Set([
 ]);
 
 const nativeThreadStreamEncoder = new TextEncoder();
+const nativeShellStreamEncoder = new TextEncoder();
 
 const CompanionNativeThreadCreateInput = Schema.Struct({
   projectId: ProjectId,
@@ -177,6 +178,16 @@ function isNativeThreadStreamEvent(event: OrchestrationEvent): boolean {
       event.type === "thread.session-set" ||
       event.type === "thread.turn-diff-completed" ||
       event.type === "thread.activity-appended")
+  );
+}
+
+function isNativeShellStreamEvent(event: OrchestrationEvent): boolean {
+  return (
+    event.aggregateKind === "thread" ||
+    event.type === "project.created" ||
+    event.type === "project.meta-updated" ||
+    event.type === "project.deleted" ||
+    event.type === "thread.deleted"
   );
 }
 
@@ -343,6 +354,67 @@ export const companionNativeShellSnapshotRouteLayer = HttpRouter.add(
         readModel,
       }) satisfies CompanionNativeShellSnapshot,
       { status: 200 },
+    );
+  }).pipe(
+    Effect.catchTag("AuthError", respondToAuthError),
+    Effect.catchTag("OrchestrationGetSnapshotError", respondToOrchestrationHttpError),
+  ),
+);
+
+export const companionNativeShellStreamRouteLayer = HttpRouter.add(
+  "GET",
+  "/api/companion/native/shell/stream",
+  Effect.gen(function* () {
+    yield* authenticateSession;
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const serverEnvironment = yield* ServerEnvironment;
+    const orchestrationEngine = yield* OrchestrationEngineService;
+    const environment = yield* serverEnvironment.getDescriptor;
+
+    const initialReadModel = yield* projectionSnapshotQuery.getSnapshot().pipe(
+      Effect.mapError(
+        (cause) =>
+          new OrchestrationGetSnapshotError({
+            message: "Failed to load native companion shell snapshot.",
+            cause,
+          }),
+      ),
+    );
+
+    const encodeSnapshot = (readModel: OrchestrationReadModel) =>
+      nativeShellStreamEncoder.encode(
+        `${JSON.stringify(
+          toCompanionNativeShellSnapshot({
+            environment,
+            readModel,
+          }),
+        )}\n`,
+      );
+
+    const liveStream = orchestrationEngine.streamDomainEvents.pipe(
+      Stream.filter((event) => isNativeShellStreamEvent(event)),
+      Stream.mapEffect(() =>
+        projectionSnapshotQuery.getSnapshot().pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to refresh native companion shell snapshot.",
+                cause,
+              }),
+          ),
+        ),
+      ),
+      Stream.map(encodeSnapshot),
+    );
+
+    return HttpServerResponse.stream(
+      Stream.concat(Stream.succeed(encodeSnapshot(initialReadModel)), liveStream),
+      {
+        headers: {
+          "cache-control": "no-cache",
+          "content-type": "application/x-ndjson; charset=utf-8",
+        },
+      },
     );
   }).pipe(
     Effect.catchTag("AuthError", respondToAuthError),
