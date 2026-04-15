@@ -296,6 +296,20 @@ private struct SettingsConnectionAccountSection: View {
                     .litterFont(.caption)
                     .foregroundColor(LitterTheme.textSecondary)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
+
+                Button(role: .destructive) {
+                    forgetDexDesktop()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "trash")
+                            .foregroundColor(LitterTheme.danger)
+                            .frame(width: 20)
+                        Text("Forget Paired Desktop")
+                            .litterFont(.subheadline)
+                            .foregroundColor(LitterTheme.danger)
+                    }
+                }
+                .listRowBackground(LitterTheme.surface.opacity(0.6))
             } else if server.isLocal, hasStoredApiKey {
                 Text("Local OpenAI API key is saved.")
                     .litterFont(.caption)
@@ -502,6 +516,15 @@ private struct SettingsConnectionAccountSection: View {
         } catch {
             authError = error.localizedDescription
         }
+    }
+
+    private func forgetDexDesktop() {
+        guard let environmentId = DexCompanionRouting.environmentId(fromServerId: server.serverId) else {
+            return
+        }
+        DexCompanionSessionStore.remove(environmentId: environmentId)
+        appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
+        DexCompanionDashboardService.shared.refresh()
     }
 }
 
