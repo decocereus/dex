@@ -24,6 +24,10 @@ struct SettingsView: View {
         )
     }
 
+    private var allConnectedAreDexManaged: Bool {
+        !connectedServers.isEmpty && connectedServers.allSatisfy(\.isDexCompanion)
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -197,30 +201,37 @@ struct SettingsView: View {
     private var serversSection: some View {
         Section {
             if connectedServers.isEmpty {
-                Text("No servers connected")
+                Text(allConnectedAreDexManaged ? "No projects connected" : "No servers connected")
                     .litterFont(.footnote)
                     .foregroundColor(LitterTheme.textMuted)
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
             } else {
                 ForEach(connectedServers, id: \.id) { conn in
                     HStack {
-                        Image(systemName: conn.isLocal ? "iphone" : "server.rack")
+                        Image(systemName: conn.isDexCompanion ? "desktopcomputer" : (conn.isLocal ? "iphone" : "server.rack"))
                             .foregroundColor(LitterTheme.accent)
                             .frame(width: 20)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(conn.displayName)
                                 .litterFont(.footnote)
                                 .foregroundColor(LitterTheme.textPrimary)
-                            Text(conn.health.displayLabel)
+                            Text(conn.isDexCompanion ? "Paired Dex desktop" : conn.health.displayLabel)
                                 .litterFont(.caption)
-                                .foregroundColor(conn.health.accentColor)
+                                .foregroundColor(conn.isDexCompanion ? LitterTheme.textSecondary : conn.health.accentColor)
                         }
                         Spacer()
-                        Button("Remove") {
-                            SavedServerStore.remove(serverId: conn.id)
-                            if !appModel.isDexManagedServer(conn.id) {
-                                Task { await SshSessionStore.shared.close(serverId: conn.id, ssh: appModel.ssh) }
-                                appModel.serverBridge.disconnectServer(serverId: conn.id)
+                        Button(conn.isDexCompanion ? "Forget" : "Remove") {
+                            if conn.isDexCompanion,
+                               let environmentId = DexCompanionRouting.environmentId(fromServerId: conn.id) {
+                                DexCompanionSessionStore.remove(environmentId: environmentId)
+                                appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
+                                DexCompanionDashboardService.shared.refresh()
+                            } else {
+                                SavedServerStore.remove(serverId: conn.id)
+                                if !appModel.isDexManagedServer(conn.id) {
+                                    Task { await SshSessionStore.shared.close(serverId: conn.id, ssh: appModel.ssh) }
+                                    appModel.serverBridge.disconnectServer(serverId: conn.id)
+                                }
                             }
                         }
                         .litterFont(.caption)
@@ -230,7 +241,7 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Servers")
+            Text(allConnectedAreDexManaged ? "Projects" : "Servers")
                 .foregroundColor(LitterTheme.textSecondary)
         }
     }
