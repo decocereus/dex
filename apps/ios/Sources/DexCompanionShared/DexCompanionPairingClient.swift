@@ -37,7 +37,7 @@ enum DexCompanionPairingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            return "The Dex companion payload did not include a valid endpoint."
+            return "The Dex desktop payload did not include a valid endpoint."
         case .invalidResponse:
             return "Dex returned an invalid pairing response."
         case .pairingFailed(let message):

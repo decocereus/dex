@@ -236,7 +236,7 @@ enum DexCompanionClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidBaseUrl:
-            return "The Dex companion server URL is invalid."
+            return "The Dex desktop URL is invalid."
         case .invalidResponse:
             return "Dex returned an invalid response."
         case .requestFailed(let message):

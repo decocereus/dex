@@ -14,14 +14,14 @@ struct DexCompanionHomeView: View {
                     Button {
                         showScanner = true
                     } label: {
-                        Label("Scan Dex Companion QR", systemImage: "qrcode.viewfinder")
+                        Label("Pair Dex Desktop", systemImage: "qrcode.viewfinder")
                     }
                     .accessibilityIdentifier("dexCompanion.scanQrButton")
                 }
 
-                Section("Saved Companions") {
+                Section("Paired Desktops") {
                     if savedSessions.isEmpty {
-                        Text("No saved Dex companions yet.")
+                        Text("No paired Dex desktops yet.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(savedSessions) { session in
@@ -48,7 +48,7 @@ struct DexCompanionHomeView: View {
                     }
                 }
             }
-            .navigationTitle("Dex Companion")
+            .navigationTitle("Dex")
         }
         .sheet(isPresented: $showScanner) {
             DexCompanionScannerView(
@@ -64,7 +64,7 @@ struct DexCompanionHomeView: View {
         .sheet(item: $activeSession) { session in
             DexCompanionWebScreen(session: session)
         }
-        .alert("Dex Companion Error", isPresented: Binding(
+        .alert("Dex Error", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )) {
@@ -72,7 +72,7 @@ struct DexCompanionHomeView: View {
         } message: {
             Text(errorMessage ?? "Unknown error")
         }
-        .alert("Remove Companion", isPresented: Binding(
+        .alert("Forget Desktop", isPresented: Binding(
             get: { pendingDeleteSession != nil },
             set: { if !$0 { pendingDeleteSession = nil } }
         )) {
@@ -85,7 +85,7 @@ struct DexCompanionHomeView: View {
                 pendingDeleteSession = nil
             }
         } message: {
-            Text("Remove this saved Dex companion session from your iPhone?")
+            Text("Forget this paired Dex desktop on your iPhone?")
         }
     }
 
@@ -104,7 +104,7 @@ struct DexCompanionHomeView: View {
     @MainActor
     private func open(_ saved: DexCompanionSavedSession) {
         guard let session = saved.makeBrowserSession() else {
-            errorMessage = "This companion session no longer has a valid Dex token. Pair again from desktop."
+            errorMessage = "This paired desktop no longer has a valid Dex token. Pair again from desktop."
             DexCompanionSessionStore.remove(environmentId: saved.environmentId)
             savedSessions = DexCompanionSessionStore.load()
             return

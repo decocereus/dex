@@ -30,7 +30,7 @@ struct DexCompanionScannerView: View {
                         .stroke(Color.white.opacity(0.7), lineWidth: 2)
                         .frame(width: 250, height: 250)
 
-                    Text("Scan the Dex companion QR from your Mac")
+                    Text("Scan the Dex desktop QR from your Mac")
                         .font(.subheadline)
                         .foregroundStyle(.white)
 
@@ -94,7 +94,7 @@ struct DexCompanionScannerView: View {
             Button("Import") { handleManualPayload() }
             Button("Cancel", role: .cancel) { manualPayload = "" }
         } message: {
-            Text("Paste the full Dex companion pairing payload JSON from desktop if scanning is unavailable.")
+            Text("Paste the full Dex desktop pairing payload JSON if scanning is unavailable.")
         }
     }
 
