@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppModel.self) private var appModel
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.mono.rawValue
+    @AppStorage("fontFamily") private var fontFamily = FontFamilyOption.geist.rawValue
     @AppStorage("collapseTurns") private var collapseTurns = false
 
     private var currentServer: AppServerSnapshot? {

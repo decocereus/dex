@@ -110,6 +110,9 @@ enum LitterTheme {
 enum FontFamilyOption: String, CaseIterable, Identifiable {
     case mono = "mono"
     case system = "system"
+    case geist = "geist"
+    case geistMono = "geistMono"
+    case jetBrainsMono = "jetBrainsMono"
 
     var id: String { rawValue }
 
@@ -117,19 +120,39 @@ enum FontFamilyOption: String, CaseIterable, Identifiable {
         switch self {
         case .mono: return "Monospaced"
         case .system: return "System (SF Pro)"
+        case .geist: return "Geist"
+        case .geistMono: return "Geist Mono"
+        case .jetBrainsMono: return "JetBrains Mono"
         }
     }
 
-    var isMono: Bool { self == .mono }
+    var isMono: Bool {
+        switch self {
+        case .mono, .geistMono, .jetBrainsMono:
+            return true
+        case .system, .geist:
+            return false
+        }
+    }
 }
 
 enum LitterFont {
     private static let berkeleyRegular = "BerkeleyMono-Regular"
     private static let berkeleyBold = "BerkeleyMono-Bold"
+    private static let geistRegular = "Geist-Regular"
+    private static let geistMedium = "Geist-Medium"
+    private static let geistSemiBold = "Geist-SemiBold"
+    private static let geistBold = "Geist-Bold"
+    private static let geistMonoRegular = "GeistMono-Regular"
+    private static let geistMonoMedium = "GeistMono-Medium"
+    private static let geistMonoBold = "GeistMono-Bold"
+    private static let jetBrainsMonoRegular = "JetBrainsMono-Regular"
+    private static let jetBrainsMonoMedium = "JetBrainsMono-Medium"
+    private static let jetBrainsMonoBold = "JetBrainsMono-Bold"
 
     static var storedFamily: FontFamilyOption {
-        let raw = UserDefaults.standard.string(forKey: "fontFamily") ?? "mono"
-        return FontFamilyOption(rawValue: raw) ?? .mono
+        let raw = UserDefaults.standard.string(forKey: "fontFamily") ?? "geist"
+        return FontFamilyOption(rawValue: raw) ?? .geist
     }
 
     static var markdownFontName: String {
@@ -138,6 +161,12 @@ enum LitterFont {
             return preferredMonoFontName(weight: .regular) ?? "SFMono-Regular"
         case .system:
             return ".AppleSystemUIFont"
+        case .geist:
+            return preferredGeistFontName(weight: .regular) ?? ".AppleSystemUIFont"
+        case .geistMono:
+            return preferredGeistMonoFontName(weight: .regular) ?? "SFMono-Regular"
+        case .jetBrainsMono:
+            return preferredJetBrainsMonoFontName(weight: .regular) ?? "SFMono-Regular"
         }
     }
 
@@ -168,10 +197,19 @@ enum LitterFont {
     }
 
     private static func styled(size: CGFloat, weight: Font.Weight, relativeTo style: Font.TextStyle?) -> Font {
-        if storedFamily.isMono {
+        switch storedFamily {
+        case .mono, .geistMono, .jetBrainsMono:
             return monoFont(size: size, weight: weight, relativeTo: style)
+        case .geist:
+            return customOrSystemFont(
+                preferredFontName(weight: weight, family: .geist),
+                size: size,
+                weight: weight,
+                relativeTo: style
+            )
+        case .system:
+            return .system(size: size, weight: weight)
         }
-        return .system(size: size, weight: weight)
     }
 
     private static func monoFont(size: CGFloat, weight: Font.Weight, relativeTo style: Font.TextStyle?) -> Font {
@@ -185,14 +223,101 @@ enum LitterFont {
     }
 
     private static func preferredMonoFontName(weight: Font.Weight) -> String? {
-        let preferred = isBold(weight: weight) ? berkeleyBold : berkeleyRegular
-        if UIFont(name: preferred, size: 12) != nil {
-            return preferred
-        }
-        if UIFont(name: berkeleyRegular, size: 12) != nil {
-            return berkeleyRegular
+        switch storedFamily {
+        case .mono:
+            let preferred = isBold(weight: weight) ? berkeleyBold : berkeleyRegular
+            if UIFont(name: preferred, size: 12) != nil {
+                return preferred
+            }
+            if UIFont(name: berkeleyRegular, size: 12) != nil {
+                return berkeleyRegular
+            }
+        case .geistMono:
+            return preferredGeistMonoFontName(weight: weight)
+        case .jetBrainsMono:
+            return preferredJetBrainsMonoFontName(weight: weight)
+        case .system, .geist:
+            break
         }
         return nil
+    }
+
+    private static func preferredFontName(weight: Font.Weight, family: FontFamilyOption) -> String? {
+        switch family {
+        case .geist:
+            return preferredGeistFontName(weight: weight)
+        case .geistMono:
+            return preferredGeistMonoFontName(weight: weight)
+        case .jetBrainsMono:
+            return preferredJetBrainsMonoFontName(weight: weight)
+        case .mono:
+            return preferredMonoFontName(weight: weight)
+        case .system:
+            return nil
+        }
+    }
+
+    private static func preferredGeistFontName(weight: Font.Weight) -> String? {
+        let candidates: [String]
+        switch weight {
+        case .bold, .heavy, .black:
+            candidates = [geistBold, geistSemiBold, geistMedium, geistRegular]
+        case .semibold:
+            candidates = [geistSemiBold, geistBold, geistMedium, geistRegular]
+        case .medium:
+            candidates = [geistMedium, geistRegular]
+        default:
+            candidates = [geistRegular, geistMedium]
+        }
+        return firstAvailableFontName(candidates)
+    }
+
+    private static func preferredGeistMonoFontName(weight: Font.Weight) -> String? {
+        let candidates: [String]
+        switch weight {
+        case .bold, .heavy, .black, .semibold:
+            candidates = [geistMonoBold, geistMonoMedium, geistMonoRegular]
+        case .medium:
+            candidates = [geistMonoMedium, geistMonoRegular]
+        default:
+            candidates = [geistMonoRegular, geistMonoMedium]
+        }
+        return firstAvailableFontName(candidates)
+    }
+
+    private static func preferredJetBrainsMonoFontName(weight: Font.Weight) -> String? {
+        let candidates: [String]
+        switch weight {
+        case .bold, .heavy, .black, .semibold:
+            candidates = [jetBrainsMonoBold, jetBrainsMonoMedium, jetBrainsMonoRegular]
+        case .medium:
+            candidates = [jetBrainsMonoMedium, jetBrainsMonoRegular]
+        default:
+            candidates = [jetBrainsMonoRegular, jetBrainsMonoMedium]
+        }
+        return firstAvailableFontName(candidates)
+    }
+
+    private static func firstAvailableFontName(_ candidates: [String]) -> String? {
+        for candidate in candidates where UIFont(name: candidate, size: 12) != nil {
+            return candidate
+        }
+        return nil
+    }
+
+    private static func customOrSystemFont(
+        _ fontName: String?,
+        size: CGFloat,
+        weight: Font.Weight,
+        relativeTo style: Font.TextStyle?
+    ) -> Font {
+        if let fontName {
+            if let style {
+                return .custom(fontName, size: size, relativeTo: style)
+            }
+            return .custom(fontName, size: size)
+        }
+        return .system(size: size, weight: weight)
     }
 
     private static func isBold(weight: Font.Weight) -> Bool {
