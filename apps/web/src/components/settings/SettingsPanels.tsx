@@ -18,7 +18,13 @@ import {
   type ServerProviderModel,
 } from "@dex/contracts";
 import { scopeThreadRef } from "@dex/client-runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@dex/contracts/settings";
+import {
+  DEFAULT_INTERFACE_FONT_FAMILY,
+  DEFAULT_MONO_FONT_FAMILY,
+  DEFAULT_UNIFIED_SETTINGS,
+  type InterfaceFontFamily,
+  type MonoFontFamily,
+} from "@dex/contracts/settings";
 import { normalizeModelSlug } from "@dex/shared/model";
 import { Equal } from "effect";
 import { APP_VERSION } from "../../branding";
@@ -91,6 +97,25 @@ const THEME_OPTIONS = [
     label: "Dark",
   },
 ] as const;
+
+const INTERFACE_FONT_OPTIONS: ReadonlyArray<{
+  value: InterfaceFontFamily;
+  label: string;
+}> = [
+  { value: "dm-sans", label: "DM Sans" },
+  { value: "geist-sans", label: "Geist Sans" },
+  { value: "system", label: "System UI" },
+];
+
+const MONO_FONT_OPTIONS: ReadonlyArray<{
+  value: MonoFontFamily;
+  label: string;
+}> = [
+  { value: "sf-mono", label: "SF Mono" },
+  { value: "geist-mono", label: "Geist Mono" },
+  { value: "jetbrains-mono", label: "JetBrains Mono" },
+  { value: "system-mono", label: "System Monospace" },
+];
 
 const TIMESTAMP_FORMAT_LABELS = {
   locale: "System default",
@@ -365,6 +390,10 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
+      ...(settings.interfaceFontFamily !== DEFAULT_UNIFIED_SETTINGS.interfaceFontFamily
+        ? ["Interface font"]
+        : []),
+      ...(settings.monoFontFamily !== DEFAULT_UNIFIED_SETTINGS.monoFontFamily ? ["Code font"] : []),
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
@@ -394,6 +423,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
       settings.enableAssistantStreaming,
+      settings.interfaceFontFamily,
+      settings.monoFontFamily,
       settings.timestampFormat,
       theme,
     ],
@@ -709,6 +740,89 @@ export function GeneralSettingsPanel() {
               </SelectTrigger>
               <SelectPopup align="end" alignItemWithTrigger={false}>
                 {THEME_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Interface font"
+          description="Set the primary UI font for the desktop renderer."
+          resetAction={
+            settings.interfaceFontFamily !== DEFAULT_INTERFACE_FONT_FAMILY ? (
+              <SettingResetButton
+                label="interface font"
+                onClick={() =>
+                  updateSettings({
+                    interfaceFontFamily: DEFAULT_INTERFACE_FONT_FAMILY,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.interfaceFontFamily}
+              onValueChange={(value) => {
+                if (INTERFACE_FONT_OPTIONS.some((option) => option.value === value)) {
+                  updateSettings({ interfaceFontFamily: value as InterfaceFontFamily });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-44" aria-label="Interface font">
+                <SelectValue>
+                  {INTERFACE_FONT_OPTIONS.find(
+                    (option) => option.value === settings.interfaceFontFamily,
+                  )?.label ?? "DM Sans"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {INTERFACE_FONT_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Code font"
+          description="Choose the monospace family used for code, paths, terminal-adjacent UI, and dense metadata."
+          resetAction={
+            settings.monoFontFamily !== DEFAULT_MONO_FONT_FAMILY ? (
+              <SettingResetButton
+                label="code font"
+                onClick={() =>
+                  updateSettings({
+                    monoFontFamily: DEFAULT_MONO_FONT_FAMILY,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.monoFontFamily}
+              onValueChange={(value) => {
+                if (MONO_FONT_OPTIONS.some((option) => option.value === value)) {
+                  updateSettings({ monoFontFamily: value as MonoFontFamily });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-48" aria-label="Code font">
+                <SelectValue>
+                  {MONO_FONT_OPTIONS.find((option) => option.value === settings.monoFontFamily)
+                    ?.label ?? "SF Mono"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {MONO_FONT_OPTIONS.map((option) => (
                   <SelectItem hideIndicator key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>

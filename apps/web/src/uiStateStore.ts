@@ -19,6 +19,7 @@ interface PersistedUiState {
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
   hiddenProjectKeys?: string[];
+  threadOrderByProjectKey?: Record<string, string[]>;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
 }
 
@@ -30,6 +31,7 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
+  threadOrderByProjectKey: Record<string, string[]>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
 
@@ -45,11 +47,14 @@ export interface SyncThreadInput {
   seedVisitedAt?: string | undefined;
 }
 
+export const DEFAULT_PROJECT_EXPANDED = false;
+
 const initialState: UiState = {
   projectExpandedById: {},
   projectHiddenById: {},
   projectOrder: [],
   threadLastVisitedAtById: {},
+  threadOrderByProjectKey: {},
   threadChangedFilesExpandedById: {},
 };
 
@@ -80,6 +85,9 @@ function readPersistedState(): UiState {
     return {
       ...initialState,
       projectHiddenById: sanitizePersistedHiddenProjectKeys(parsed.hiddenProjectKeys),
+      threadOrderByProjectKey: sanitizePersistedThreadOrderByProjectKey(
+        parsed.threadOrderByProjectKey,
+      ),
       threadChangedFilesExpandedById: sanitizePersistedThreadChangedFilesExpanded(
         parsed.threadChangedFilesExpandedById,
       ),
@@ -100,6 +108,34 @@ function sanitizePersistedHiddenProjectKeys(
       .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
       .map((entry) => [entry, true] as const),
   );
+}
+
+function sanitizePersistedThreadOrderByProjectKey(
+  value: PersistedUiState["threadOrderByProjectKey"],
+): Record<string, string[]> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const nextState: Record<string, string[]> = {};
+  for (const [projectKey, threadKeys] of Object.entries(value)) {
+    if (!projectKey || !Array.isArray(threadKeys)) {
+      continue;
+    }
+
+    const sanitizedThreadKeys = Array.from(
+      new Set(
+        threadKeys.filter(
+          (threadKey): threadKey is string => typeof threadKey === "string" && threadKey.length > 0,
+        ),
+      ),
+    );
+    if (sanitizedThreadKeys.length > 0) {
+      nextState[projectKey] = sanitizedThreadKeys;
+    }
+  }
+
+  return nextState;
 }
 
 function sanitizePersistedThreadChangedFilesExpanded(
@@ -163,6 +199,19 @@ function persistState(state: UiState): void {
     const hiddenProjectKeys = Object.entries(state.projectHiddenById)
       .filter(([, hidden]) => hidden)
       .map(([projectId]) => projectId);
+    const threadOrderByProjectKey = Object.fromEntries(
+      Object.entries(state.threadOrderByProjectKey).flatMap(([projectKey, threadKeys]) => {
+        const sanitizedThreadKeys = Array.from(
+          new Set(
+            threadKeys.filter(
+              (threadKey): threadKey is string =>
+                typeof threadKey === "string" && threadKey.length > 0,
+            ),
+          ),
+        );
+        return sanitizedThreadKeys.length > 0 ? [[projectKey, sanitizedThreadKeys]] : [];
+      }),
+    );
     const threadChangedFilesExpandedById = Object.fromEntries(
       Object.entries(state.threadChangedFilesExpandedById).flatMap(([threadId, turns]) => {
         const nextTurns = Object.fromEntries(
@@ -177,6 +226,7 @@ function persistState(state: UiState): void {
         expandedProjectCwds,
         projectOrderCwds,
         hiddenProjectKeys,
+        threadOrderByProjectKey,
         threadChangedFilesExpandedById,
       } satisfies PersistedUiState),
     );
@@ -230,6 +280,35 @@ function nestedBooleanRecordsEqual(
   return true;
 }
 
+function stringArrayRecordsEqual(
+  left: Record<string, string[]>,
+  right: Record<string, string[]>,
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  if (leftEntries.length !== rightEntries.length) {
+    return false;
+  }
+  for (const [key, value] of leftEntries) {
+    const rightValue = right[key];
+    if (
+      !rightValue ||
+      value.length !== rightValue.length ||
+      value.some((entry, index) => entry !== rightValue[index])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function isProjectExpanded(
+  projectExpandedById: Record<string, boolean>,
+  projectId: string,
+): boolean {
+  return projectExpandedById[projectId] ?? DEFAULT_PROJECT_EXPANDED;
+}
+
 export function syncProjects(state: UiState, projects: readonly SyncProjectInput[]): UiState {
   const previousProjectCwdById = new Map(currentProjectCwdById);
   const previousProjectIdByCwd = new Map(
@@ -255,7 +334,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
       (previousProjectIdForCwd ? previousExpandedById[previousProjectIdForCwd] : undefined) ??
       (persistedExpandedProjectCwds.size > 0
         ? persistedExpandedProjectCwds.has(project.cwd)
-        : true);
+        : DEFAULT_PROJECT_EXPANDED);
     nextExpandedById[project.key] = expanded;
     return {
       id: project.key,
@@ -478,7 +557,7 @@ export function setThreadChangedFilesExpanded(
 }
 
 export function toggleProject(state: UiState, projectId: string): UiState {
-  const expanded = state.projectExpandedById[projectId] ?? true;
+  const expanded = isProjectExpanded(state.projectExpandedById, projectId);
   return {
     ...state,
     projectExpandedById: {
@@ -521,7 +600,7 @@ export function setProjectsExpanded(
   let changed = false;
   const nextExpandedById = { ...state.projectExpandedById };
   for (const projectId of projectIds) {
-    if ((nextExpandedById[projectId] ?? true) === expanded) {
+    if (isProjectExpanded(nextExpandedById, projectId) === expanded) {
       continue;
     }
     nextExpandedById[projectId] = expanded;
@@ -537,7 +616,7 @@ export function setProjectsExpanded(
 }
 
 export function setProjectExpanded(state: UiState, projectId: string, expanded: boolean): UiState {
-  if ((state.projectExpandedById[projectId] ?? true) === expanded) {
+  if (isProjectExpanded(state.projectExpandedById, projectId) === expanded) {
     return state;
   }
   return {
@@ -592,12 +671,46 @@ export function reorderProjects(
   };
 }
 
+export function setThreadOrderForProject(
+  state: UiState,
+  projectKey: string,
+  threadKeys: readonly string[],
+): UiState {
+  const sanitizedThreadKeys = Array.from(
+    new Set(
+      threadKeys.filter(
+        (threadKey): threadKey is string => typeof threadKey === "string" && threadKey.length > 0,
+      ),
+    ),
+  );
+  const nextThreadOrderByProjectKey =
+    sanitizedThreadKeys.length > 0
+      ? {
+          ...state.threadOrderByProjectKey,
+          [projectKey]: sanitizedThreadKeys,
+        }
+      : (() => {
+          const { [projectKey]: _removed, ...remaining } = state.threadOrderByProjectKey;
+          return remaining;
+        })();
+
+  if (stringArrayRecordsEqual(state.threadOrderByProjectKey, nextThreadOrderByProjectKey)) {
+    return state;
+  }
+
+  return {
+    ...state,
+    threadOrderByProjectKey: nextThreadOrderByProjectKey,
+  };
+}
+
 interface UiStateStore extends UiState {
   syncProjects: (projects: readonly SyncProjectInput[]) => void;
   syncThreads: (threads: readonly SyncThreadInput[]) => void;
   markThreadVisited: (threadId: string, visitedAt?: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   clearThreadUi: (threadId: string) => void;
+  setThreadOrderForProject: (projectKey: string, threadKeys: readonly string[]) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   toggleProject: (projectId: string) => void;
   setProjectExpanded: (projectId: string, expanded: boolean) => void;
@@ -618,6 +731,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   markThreadUnread: (threadId, latestTurnCompletedAt) =>
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   clearThreadUi: (threadId) => set((state) => clearThreadUi(state, threadId)),
+  setThreadOrderForProject: (projectKey, threadKeys) =>
+    set((state) => setThreadOrderForProject(state, projectKey, threadKeys)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>
     set((state) => setThreadChangedFilesExpanded(state, threadId, turnId, expanded)),
   toggleProject: (projectId) => set((state) => toggleProject(state, projectId)),

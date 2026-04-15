@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   clearThreadUi,
+  isProjectExpanded,
   markThreadUnread,
   reorderProjects,
   setProjectHidden,
@@ -11,6 +12,7 @@ import {
   setThreadChangedFilesExpanded,
   syncProjects,
   syncThreads,
+  toggleProject,
   type UiState,
 } from "./uiStateStore";
 
@@ -20,6 +22,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectHiddenById: {},
     projectOrder: [],
     threadLastVisitedAtById: {},
+    threadOrderByProjectKey: {},
     threadChangedFilesExpandedById: {},
     ...overrides,
   };
@@ -195,6 +198,14 @@ describe("uiStateStore pure functions", () => {
     expect(next.projectExpandedById[project2]).toBe(false);
   });
 
+  it("syncProjects defaults new projects to collapsed when no expansion state exists", () => {
+    const project1 = ProjectId.make("project-1");
+
+    const next = syncProjects(makeUiState(), [{ key: project1, cwd: "/tmp/project-1" }]);
+
+    expect(isProjectExpanded(next.projectExpandedById, project1)).toBe(false);
+  });
+
   it("syncProjects preserves manual order when a project is recreated with the same cwd", () => {
     const oldProject1 = ProjectId.make("project-1");
     const oldProject2 = ProjectId.make("project-2");
@@ -300,6 +311,14 @@ describe("uiStateStore pure functions", () => {
 
     expect(next.projectExpandedById[project1]).toBe(false);
     expect(next.projectOrder).toEqual([project1]);
+  });
+
+  it("toggleProject expands a collapsed-by-default project on first toggle", () => {
+    const project1 = ProjectId.make("project-1");
+
+    const next = toggleProject(makeUiState(), project1);
+
+    expect(next.projectExpandedById[project1]).toBe(true);
   });
 
   it("setProjectsExpanded updates multiple projects at once", () => {

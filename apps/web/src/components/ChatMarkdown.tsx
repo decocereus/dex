@@ -18,12 +18,15 @@ import ReactMarkdown from "react-markdown";
 import { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { openInPreferredEditor } from "../editorPreferences";
+import { readEnvironmentApi } from "../environmentApi";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { fnv1a32 } from "../lib/diffRendering";
 import { LRUCache } from "../lib/lruCache";
 import { useTheme } from "../hooks/useTheme";
 import { resolveMarkdownFileLinkTarget, rewriteMarkdownFileUriHref } from "../markdown-links";
 import { readLocalApi } from "../localApi";
+import { toastManager } from "./ui/toast";
+import type { EnvironmentId } from "@dex/contracts";
 
 class CodeHighlightErrorBoundary extends React.Component<
   { fallback: ReactNode; children: ReactNode },
@@ -49,6 +52,7 @@ class CodeHighlightErrorBoundary extends React.Component<
 interface ChatMarkdownProps {
   text: string;
   cwd: string | undefined;
+  environmentId?: EnvironmentId | undefined;
   isStreaming?: boolean;
 }
 
@@ -236,7 +240,81 @@ function SuspenseShikiCodeBlock({
   );
 }
 
-function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
+function normalizeWorkspaceSearchQuery(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  const withoutHash = trimmed.split("#")[0] ?? trimmed;
+  const withoutQuery = withoutHash.split("?")[0] ?? withoutHash;
+  const withoutPosition = withoutQuery.replace(/:\d+(?::\d+)?$/, "");
+  const normalized = withoutPosition.split("/").at(-1) ?? withoutPosition;
+  return normalized.trim();
+}
+
+function scoreWorkspaceEntryMatch(entryPath: string, query: string): number {
+  const normalizedPath = entryPath.toLowerCase();
+  const normalizedQuery = query.toLowerCase();
+  const basename = normalizedPath.split("/").at(-1) ?? normalizedPath;
+
+  if (basename === normalizedQuery) return 5;
+  if (basename.startsWith(normalizedQuery)) return 4;
+  if (basename.includes(normalizedQuery)) return 3;
+  if (normalizedPath.includes(`/${normalizedQuery}`)) return 2;
+  if (normalizedPath.includes(normalizedQuery)) return 1;
+  return 0;
+}
+
+async function resolveWorkspaceSearchedFileLinkTarget(input: {
+  cwd: string | undefined;
+  environmentId: EnvironmentId | undefined;
+  href: string | undefined;
+  linkText: string;
+}): Promise<string | null> {
+  if (!input.cwd || !input.environmentId) {
+    return null;
+  }
+
+  const environmentApi = readEnvironmentApi(input.environmentId);
+  if (!environmentApi) {
+    return null;
+  }
+
+  const queryCandidates = [
+    normalizeWorkspaceSearchQuery(input.href ?? ""),
+    normalizeWorkspaceSearchQuery(input.linkText),
+  ].filter(
+    (value, index, array): value is string => value.length > 0 && array.indexOf(value) === index,
+  );
+
+  for (const query of queryCandidates) {
+    const result = await environmentApi.projects.searchEntries({
+      cwd: input.cwd,
+      query,
+      limit: 20,
+    });
+    const bestMatch = result.entries
+      .filter((entry) => entry.kind === "file")
+      .map((entry) => ({ entry, score: scoreWorkspaceEntryMatch(entry.path, query) }))
+      .filter((candidate) => candidate.score > 0)
+      .toSorted(
+        (left, right) =>
+          right.score - left.score || left.entry.path.length - right.entry.path.length,
+      )[0];
+
+    if (bestMatch) {
+      const directTarget = resolveMarkdownFileLinkTarget(bestMatch.entry.path, input.cwd);
+      if (directTarget) {
+        return directTarget;
+      }
+    }
+  }
+
+  return null;
+}
+
+function ChatMarkdown({ text, cwd, environmentId, isStreaming = false }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const markdownUrlTransform = useCallback((href: string) => {
@@ -244,10 +322,66 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
   }, []);
   const markdownComponents = useMemo<Components>(
     () => ({
-      a({ node: _node, href, ...props }) {
+      a({ node: _node, href, children, ...props }) {
         const targetPath = resolveMarkdownFileLinkTarget(href, cwd);
         if (!targetPath) {
-          return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
+          const linkText = nodeToPlainText(children);
+          const hasWorkspaceFallback =
+            Boolean(cwd) &&
+            Boolean(environmentId) &&
+            normalizeWorkspaceSearchQuery(href ?? "").length > 0;
+
+          if (!hasWorkspaceFallback) {
+            return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
+          }
+
+          return (
+            <a
+              {...props}
+              href={href}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const api = readLocalApi();
+                if (!api) {
+                  toastManager.add({
+                    type: "error",
+                    title: "Editor opening is unavailable.",
+                  });
+                  return;
+                }
+                void resolveWorkspaceSearchedFileLinkTarget({
+                  cwd,
+                  environmentId,
+                  href,
+                  linkText,
+                })
+                  .then((resolvedTargetPath) => {
+                    if (!resolvedTargetPath) {
+                      toastManager.add({
+                        type: "error",
+                        title: "Unable to find file",
+                        description:
+                          linkText.trim() ||
+                          href?.trim() ||
+                          "The linked file could not be resolved.",
+                      });
+                      return;
+                    }
+                    return openInPreferredEditor(api, resolvedTargetPath);
+                  })
+                  .catch((error) => {
+                    toastManager.add({
+                      type: "error",
+                      title: "Unable to open file",
+                      description: error instanceof Error ? error.message : "An error occurred.",
+                    });
+                  });
+              }}
+            >
+              {children}
+            </a>
+          );
         }
 
         return (
@@ -259,9 +393,18 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
               event.stopPropagation();
               const api = readLocalApi();
               if (api) {
-                void openInPreferredEditor(api, targetPath);
+                void openInPreferredEditor(api, targetPath).catch((error) => {
+                  toastManager.add({
+                    type: "error",
+                    title: "Unable to open file",
+                    description: error instanceof Error ? error.message : "An error occurred.",
+                  });
+                });
               } else {
-                console.warn("Native API not found. Unable to open file in editor.");
+                toastManager.add({
+                  type: "error",
+                  title: "Editor opening is unavailable.",
+                });
               }
             }}
           />
@@ -289,7 +432,7 @@ function ChatMarkdown({ text, cwd, isStreaming = false }: ChatMarkdownProps) {
         );
       },
     }),
-    [cwd, diffThemeName, isStreaming],
+    [cwd, diffThemeName, environmentId, isStreaming],
   );
 
   return (

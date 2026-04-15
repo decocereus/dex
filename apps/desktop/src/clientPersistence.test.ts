@@ -52,6 +52,8 @@ const clientSettings: ClientSettings = {
   confirmThreadArchive: true,
   confirmThreadDelete: false,
   diffWordWrap: true,
+  interfaceFontFamily: "geist-sans",
+  monoFontFamily: "jetbrains-mono",
   sidebarProjectSortOrder: "manual",
   sidebarThreadSortOrder: "created_at",
   timestampFormat: "24-hour",

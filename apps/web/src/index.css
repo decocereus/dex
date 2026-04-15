@@ -1,3 +1,7 @@
+@import "@fontsource/dm-sans";
+@import "@fontsource/geist-sans";
+@import "@fontsource/geist-mono";
+@import "@fontsource-variable/jetbrains-mono";
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark, .dark *));
@@ -38,6 +42,8 @@
   --radius-2xl: calc(var(--radius) + 8px);
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
+  --font-sans: var(--app-font-ui);
+  --font-mono: var(--app-font-mono);
   @keyframes skeleton {
     to {
       background-position: -200% 0;
@@ -96,6 +102,8 @@
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
+  --app-font-ui: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --app-font-mono: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 
   @variant dark {
     color-scheme: dark;
@@ -128,14 +136,32 @@
   }
 }
 
+:root[data-interface-font="geist-sans"] {
+  --app-font-ui: "Geist Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+:root[data-interface-font="system"] {
+  --app-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+:root[data-mono-font="geist-mono"] {
+  --app-font-mono:
+    "Geist Mono", "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+:root[data-mono-font="jetbrains-mono"] {
+  --app-font-mono:
+    "JetBrains Mono Variable", "JetBrains Mono", "SF Mono", "SFMono-Regular", Consolas,
+    "Liberation Mono", Menlo, monospace;
+}
+
+:root[data-mono-font="system-mono"] {
+  --app-font-mono:
+    ui-monospace, "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
 body {
-  font-family:
-    "DM Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  font-family: var(--app-font-ui);
   margin: 0;
   padding: 0;
   min-height: 100vh;
@@ -166,7 +192,7 @@ body::after {
 
 pre,
 code {
-  font-family: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--app-font-mono);
 }
 
 /* Window drag region (frameless titlebar) */

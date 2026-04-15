@@ -19,14 +19,33 @@ export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_a
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
 
-export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
+export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+
+export const InterfaceFontFamily = Schema.Literals(["dm-sans", "geist-sans", "system"]);
+export type InterfaceFontFamily = typeof InterfaceFontFamily.Type;
+export const DEFAULT_INTERFACE_FONT_FAMILY: InterfaceFontFamily = "dm-sans";
+
+export const MonoFontFamily = Schema.Literals([
+  "sf-mono",
+  "geist-mono",
+  "jetbrains-mono",
+  "system-mono",
+]);
+export type MonoFontFamily = typeof MonoFontFamily.Type;
+export const DEFAULT_MONO_FONT_FAMILY: MonoFontFamily = "sf-mono";
 
 export const ClientSettingsSchema = Schema.Struct({
   confirmThreadArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   confirmThreadDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  interfaceFontFamily: InterfaceFontFamily.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_INTERFACE_FONT_FAMILY)),
+  ),
+  monoFontFamily: MonoFontFamily.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_MONO_FONT_FAMILY)),
+  ),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),

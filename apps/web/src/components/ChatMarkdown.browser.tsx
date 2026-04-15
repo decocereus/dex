@@ -12,6 +12,17 @@ const { openInPreferredEditorMock, readLocalApiMock } = vi.hoisted(() => ({
   })),
 }));
 
+const { readEnvironmentApiMock } = vi.hoisted(() => ({
+  readEnvironmentApiMock: vi.fn(() => ({
+    projects: {
+      searchEntries: vi.fn(async () => ({
+        entries: [{ path: ".plans/21-ios-dex-first-cutover-roadmap.md", kind: "file" }],
+        truncated: false,
+      })),
+    },
+  })),
+}));
+
 vi.mock("../editorPreferences", () => ({
   openInPreferredEditor: openInPreferredEditorMock,
 }));
@@ -23,12 +34,17 @@ vi.mock("../localApi", () => ({
   readLocalApi: readLocalApiMock,
 }));
 
+vi.mock("../environmentApi", () => ({
+  readEnvironmentApi: readEnvironmentApiMock,
+}));
+
 import ChatMarkdown from "./ChatMarkdown";
 
 describe("ChatMarkdown", () => {
   afterEach(() => {
     openInPreferredEditorMock.mockClear();
     readLocalApiMock.mockClear();
+    readEnvironmentApiMock.mockClear();
     localStorage.clear();
     document.body.innerHTML = "";
   });
@@ -71,6 +87,33 @@ describe("ChatMarkdown", () => {
 
       await vi.waitFor(() => {
         expect(openInPreferredEditorMock).toHaveBeenCalledWith(expect.anything(), `${filePath}:1`);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("falls back to workspace search for repo-local doc links that do not resolve directly", async () => {
+    const screen = await render(
+      <ChatMarkdown
+        text={"[21-ios-dex-first-cutover-](21-ios-dex-first-cutover-)"}
+        cwd="/Users/amartyasingh/Documents/projects/dex"
+        environmentId={"environment-local" as never}
+      />,
+    );
+
+    try {
+      const link = page.getByRole("link", { name: "21-ios-dex-first-cutover-" });
+      await expect.element(link).toBeInTheDocument();
+
+      await link.click();
+
+      await vi.waitFor(() => {
+        expect(readEnvironmentApiMock).toHaveBeenCalledWith("environment-local");
+        expect(openInPreferredEditorMock).toHaveBeenCalledWith(
+          expect.anything(),
+          "/Users/amartyasingh/Documents/projects/dex/.plans/21-ios-dex-first-cutover-roadmap.md",
+        );
       });
     } finally {
       await screen.unmount();

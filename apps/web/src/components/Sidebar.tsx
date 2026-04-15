@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   ArrowUpDownIcon,
+  BarChart3Icon,
   ChevronsUpDownIcon,
   ChevronRightIcon,
   CloudIcon,
@@ -58,7 +59,7 @@ import { Link, useLocation, useNavigate, useParams, useRouter } from "@tanstack/
 import { type SidebarProjectSortOrder, type SidebarThreadSortOrder } from "@dex/contracts/settings";
 import { usePrimaryEnvironmentId } from "../environments/primary";
 import { isElectron } from "../env";
-import { APP_STAGE_LABEL, APP_VERSION } from "../branding";
+import { APP_BASE_NAME, APP_STAGE_LABEL, APP_VERSION } from "../branding";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isLinuxPlatform, isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
@@ -71,7 +72,7 @@ import {
   useStore,
 } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
-import { useUiStateStore } from "../uiStateStore";
+import { isProjectExpanded, useUiStateStore } from "../uiStateStore";
 import {
   resolveShortcutCommand,
   shortcutLabelForCommand,
@@ -164,7 +165,9 @@ const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
 const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
   updated_at: "Last user message",
   created_at: "Created at",
+  manual: "Manual",
 };
+const EMPTY_MANUAL_THREAD_ORDER: readonly string[] = [];
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   duration: 180,
   easing: "ease-out",
@@ -359,6 +362,7 @@ interface SidebarThreadRowProps {
   handleMultiSelectContextMenu: (position: { x: number; y: number }) => Promise<void>;
   handleThreadContextMenu: (
     threadRef: ScopedThreadRef,
+    orderedProjectThreadKeys: readonly string[],
     position: { x: number; y: number },
   ) => Promise<void>;
   clearSelection: () => void;
@@ -498,7 +502,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       if (hasSelection) {
         clearSelection();
       }
-      void handleThreadContextMenu(threadRef, {
+      void handleThreadContextMenu(threadRef, orderedProjectThreadKeys, {
         x: event.clientX,
         y: event.clientY,
       });
@@ -509,6 +513,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       handleThreadContextMenu,
       hasSelection,
       isSelected,
+      orderedProjectThreadKeys,
       threadRef,
     ],
   );
@@ -813,6 +818,7 @@ interface SidebarProjectThreadListProps {
   handleMultiSelectContextMenu: (position: { x: number; y: number }) => Promise<void>;
   handleThreadContextMenu: (
     threadRef: ScopedThreadRef,
+    orderedProjectThreadKeys: readonly string[],
     position: { x: number; y: number },
   ) => Promise<void>;
   clearSelection: () => void;
@@ -1008,6 +1014,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
   const router = useRouter();
   const markThreadUnread = useUiStateStore((state) => state.markThreadUnread);
+  const setThreadOrderForProject = useUiStateStore((state) => state.setThreadOrderForProject);
   const toggleProject = useUiStateStore((state) => state.toggleProject);
   const toggleThreadSelection = useThreadSelectionStore((state) => state.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((state) => state.rangeSelectTo);
@@ -1135,8 +1142,11 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   // All threads from the representative + other member environments are
   // already fetched into allSidebarThreads, so we can use them directly.
   const projectThreads = allSidebarThreads;
-  const projectExpanded = useUiStateStore(
-    (state) => state.projectExpandedById[project.projectKey] ?? true,
+  const projectExpanded = useUiStateStore((state) =>
+    isProjectExpanded(state.projectExpandedById, project.projectKey),
+  );
+  const manualThreadOrder = useUiStateStore(
+    (state) => state.threadOrderByProjectKey[project.projectKey] ?? EMPTY_MANUAL_THREAD_ORDER,
   );
   const threadLastVisitedAts = useUiStateStore(
     useShallow((state) =>
@@ -1173,10 +1183,16 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const visibleProjectThreads = sortThreads(
-      projectThreads.filter((thread) => thread.archivedAt === null),
-      threadSortOrder,
-    );
+    const activeProjectThreads = projectThreads.filter((thread) => thread.archivedAt === null);
+    const defaultSortedProjectThreads = sortThreads(activeProjectThreads, "updated_at");
+    const visibleProjectThreads =
+      threadSortOrder === "manual"
+        ? orderItemsByPreferredIds({
+            items: defaultSortedProjectThreads,
+            preferredIds: manualThreadOrder,
+            getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+          })
+        : sortThreads(activeProjectThreads, threadSortOrder);
     const projectStatus = resolveProjectStatusIndicator(
       visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
     );
@@ -1187,7 +1203,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       projectStatus,
       visibleProjectThreads,
     };
-  }, [projectThreads, threadLastVisitedAts, threadSortOrder]);
+  }, [manualThreadOrder, projectThreads, threadLastVisitedAts, threadSortOrder]);
 
   const pinnedCollapsedThread = useMemo(() => {
     const activeThreadKey = activeRouteThreadKey ?? undefined;
@@ -1226,7 +1242,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         },
       });
     };
-    const hasOverflowingThreads = visibleProjectThreads.length > THREAD_PREVIEW_LIMIT;
+    const hasOverflowingThreads =
+      threadSortOrder !== "manual" && visibleProjectThreads.length > THREAD_PREVIEW_LIMIT;
     const previewThreads =
       isThreadListExpanded || !hasOverflowingThreads
         ? visibleProjectThreads
@@ -1259,6 +1276,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     pinnedCollapsedThread,
     projectExpanded,
     projectThreads,
+    threadSortOrder,
     threadLastVisitedAts,
     visibleProjectThreads,
   ]);
@@ -1672,17 +1690,41 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
   );
 
   const handleThreadContextMenu = useCallback(
-    async (threadRef: ScopedThreadRef, position: { x: number; y: number }) => {
+    async (
+      threadRef: ScopedThreadRef,
+      orderedProjectThreadKeys: readonly string[],
+      position: { x: number; y: number },
+    ) => {
       const api = readLocalApi();
       if (!api) return;
       const threadKey = scopedThreadKey(threadRef);
       const thread = sidebarThreadByKeyRef.current.get(threadKey) ?? null;
       if (!thread) return;
       const threadWorkspacePath = thread.worktreePath ?? project.cwd ?? null;
+      const manualIndex = orderedProjectThreadKeys.indexOf(threadKey);
+      const canMoveUp = threadSortOrder === "manual" && manualIndex > 0;
+      const canMoveDown =
+        threadSortOrder === "manual" &&
+        manualIndex >= 0 &&
+        manualIndex < orderedProjectThreadKeys.length - 1;
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
+          ...(threadSortOrder === "manual"
+            ? [
+                {
+                  id: "move-up",
+                  label: canMoveUp ? "Move up" : "Move up",
+                  disabled: !canMoveUp,
+                },
+                {
+                  id: "move-down",
+                  label: canMoveDown ? "Move down" : "Move down",
+                  disabled: !canMoveDown,
+                },
+              ]
+            : []),
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "delete", label: "Delete", destructive: true },
@@ -1699,6 +1741,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
 
       if (clicked === "mark-unread") {
         markThreadUnread(threadKey, thread.latestTurn?.completedAt);
+        return;
+      }
+      if ((clicked === "move-up" && canMoveUp) || (clicked === "move-down" && canMoveDown)) {
+        const nextOrder = [...orderedProjectThreadKeys];
+        const offset = clicked === "move-up" ? -1 : 1;
+        const swapIndex = manualIndex + offset;
+        const [currentThreadKey] = nextOrder.splice(manualIndex, 1);
+        nextOrder.splice(swapIndex, 0, currentThreadKey!);
+        setThreadOrderForProject(project.projectKey, nextOrder);
         return;
       }
       if (clicked === "copy-path") {
@@ -1738,6 +1789,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       deleteThread,
       markThreadUnread,
       project.cwd,
+      project.projectKey,
+      setThreadOrderForProject,
+      threadSortOrder,
     ],
   );
 
@@ -1892,19 +1946,14 @@ const SidebarProjectListRow = memo(function SidebarProjectListRow(props: Sidebar
   );
 });
 
-function T3Wordmark() {
+function DexWordmark() {
   return (
-    <svg
-      aria-label="dex"
-      className="h-2.5 w-auto shrink-0 text-foreground"
-      viewBox="15.5309 37 94.3941 56.96"
-      xmlns="http://www.w3.org/2000/svg"
+    <span
+      aria-label={APP_BASE_NAME}
+      className="inline-flex h-6 items-center rounded-full border border-border/70 bg-background/80 px-2.5 text-[11px] font-semibold tracking-[0.22em] text-foreground uppercase"
     >
-      <path
-        d="M33.4509 93V47.56H15.5309V37H64.3309V47.56H46.4109V93H33.4509ZM86.7253 93.96C82.832 93.96 78.9653 93.4533 75.1253 92.44C71.2853 91.3733 68.032 89.88 65.3653 87.96L70.4053 78.04C72.5386 79.5867 75.0186 80.8133 77.8453 81.72C80.672 82.6267 83.5253 83.08 86.4053 83.08C89.6586 83.08 92.2186 82.44 94.0853 81.16C95.952 79.88 96.8853 78.12 96.8853 75.88C96.8853 73.7467 96.0586 72.0667 94.4053 70.84C92.752 69.6133 90.0853 69 86.4053 69H80.4853V60.44L96.0853 42.76L97.5253 47.4H68.1653V37H107.365V45.4L91.8453 63.08L85.2853 59.32H89.0453C95.9253 59.32 101.125 60.8667 104.645 63.96C108.165 67.0533 109.925 71.0267 109.925 75.88C109.925 79.0267 109.099 81.9867 107.445 84.76C105.792 87.48 103.259 89.6933 99.8453 91.4C96.432 93.1067 92.0586 93.96 86.7253 93.96Z"
-        fill="currentColor"
-      />
-    </svg>
+      {APP_BASE_NAME}
+    </span>
   );
 }
 
@@ -2064,9 +2113,9 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
               className="ml-1 flex min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-md outline-hidden ring-ring transition-colors hover:text-foreground focus-visible:ring-2"
               to="/"
             >
-              <T3Wordmark />
+              <DexWordmark />
               <span className="truncate text-sm font-medium tracking-tight text-muted-foreground">
-                Code
+                dex
               </span>
               <span className="rounded-full bg-muted/50 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
                 {APP_STAGE_LABEL}
@@ -2090,19 +2139,89 @@ const SidebarChromeHeader = memo(function SidebarChromeHeader({
   );
 });
 
-const SidebarChromeFooter = memo(function SidebarChromeFooter() {
+const SidebarChromeFooter = memo(function SidebarChromeFooter({
+  archivedProjects,
+  pathname,
+  setProjectHidden,
+}: {
+  archivedProjects: readonly SidebarProjectSnapshot[];
+  pathname: string;
+  setProjectHidden: (projectKey: string, hidden: boolean) => void;
+}) {
   const navigate = useNavigate();
+  const [archivedProjectsExpanded, setArchivedProjectsExpanded] = useState(false);
   const handleSettingsClick = useCallback(() => {
     void navigate({ to: "/settings" });
   }, [navigate]);
+  const handleStatsClick = useCallback(() => {
+    void navigate({ to: "/stats" });
+  }, [navigate]);
 
   return (
-    <SidebarFooter className="p-2">
+    <SidebarFooter className="gap-2 p-2">
       <SidebarUpdatePill />
+      {archivedProjects.length > 0 ? (
+        <div className="overflow-hidden rounded-xl border border-border/70 bg-background/60">
+          <button
+            type="button"
+            aria-expanded={archivedProjectsExpanded}
+            className="flex w-full items-center justify-between px-3 py-2 text-left transition-colors hover:bg-accent"
+            onClick={() => {
+              setArchivedProjectsExpanded((current) => !current);
+            }}
+          >
+            <span className="flex items-center gap-1.5">
+              <ChevronRightIcon
+                className={`size-3.5 text-muted-foreground/70 transition-transform duration-150 ${
+                  archivedProjectsExpanded ? "rotate-90" : ""
+                }`}
+              />
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                Archived projects
+              </span>
+            </span>
+            <span className="text-[10px] text-muted-foreground/50">{archivedProjects.length}</span>
+          </button>
+          {archivedProjectsExpanded ? (
+            <div className="max-h-52 overflow-y-auto border-t border-border/60 px-2 py-2">
+              <SidebarMenu>
+                {archivedProjects.map((project) => (
+                  <SidebarMenuItem
+                    key={`archived-footer-${project.projectKey}`}
+                    className="rounded-md"
+                  >
+                    <SidebarMenuButton
+                      size="sm"
+                      className="gap-2 px-2 py-1.5 text-left text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+                      onClick={() => setProjectHidden(project.projectKey, false)}
+                    >
+                      <ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />
+                      <span className="flex-1 truncate text-xs">{project.name}</span>
+                      <Undo2Icon className="size-3.5 text-muted-foreground/70" />
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
             size="sm"
+            isActive={pathname === "/stats"}
+            className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
+            onClick={handleStatsClick}
+          >
+            <BarChart3Icon className="size-3.5" />
+            <span className="text-xs">Stats</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            size="sm"
+            isActive={pathname.startsWith("/settings")}
             className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
             onClick={handleSettingsClick}
           >
@@ -2289,7 +2408,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
   const handleBrowseForFolderClick = useCallback(() => {
     void handlePickFolder();
   }, [handlePickFolder]);
-
   return (
     <SidebarContent className="gap-0">
       <SidebarGroup className="px-2 pt-2 pb-1">
@@ -2552,39 +2670,6 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
           </div>
         )}
       </SidebarGroup>
-      {archivedProjects.length > 0 ? (
-        <SidebarGroup className="px-2 pt-1 pb-2">
-          <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-              Archived projects
-            </span>
-          </div>
-          <SidebarMenu>
-            {archivedProjects.map((project) => (
-              <SidebarMenuItem key={`archived-${project.projectKey}`} className="rounded-md">
-                <SidebarMenuButton
-                  size="sm"
-                  className="gap-2 px-2 py-1.5 text-left text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-                  onClick={() => setProjectHidden(project.projectKey, false)}
-                >
-                  <ProjectFavicon environmentId={project.environmentId} cwd={project.cwd} />
-                  <span className="flex-1 truncate text-xs">{project.name}</span>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/70">
-                          <Undo2Icon className="size-3.5" />
-                        </span>
-                      }
-                    />
-                    <TooltipPopup side="top">Show project</TooltipPopup>
-                  </Tooltip>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-      ) : null}
     </SidebarContent>
   );
 });
@@ -3094,7 +3179,7 @@ export default function Sidebar() {
           ),
           sidebarThreadSortOrder,
         );
-        const projectExpanded = projectExpandedById[project.projectKey] ?? true;
+        const projectExpanded = isProjectExpanded(projectExpandedById, project.projectKey);
         const activeThreadKey = routeThreadKey ?? undefined;
         const pinnedCollapsedThread =
           !projectExpanded && activeThreadKey
@@ -3471,7 +3556,7 @@ export default function Sidebar() {
     () =>
       visibleSortedProjects.length > 0 &&
       visibleSortedProjects.every(
-        (project) => (projectExpandedById[project.projectKey] ?? true) === false,
+        (project) => !isProjectExpanded(projectExpandedById, project.projectKey),
       ),
     [projectExpandedById, visibleSortedProjects],
   );
@@ -3546,7 +3631,11 @@ export default function Sidebar() {
           />
 
           <SidebarSeparator />
-          <SidebarChromeFooter />
+          <SidebarChromeFooter
+            archivedProjects={archivedProjects}
+            pathname={pathname}
+            setProjectHidden={setProjectHidden}
+          />
         </>
       )}
     </>

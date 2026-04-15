@@ -33,6 +33,7 @@ import {
 import { useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
+import { TypographyBootstrap } from "../hooks/useTypography";
 import {
   ensureEnvironmentConnectionBootstrapped,
   getPrimaryEnvironmentConnection,
@@ -88,6 +89,7 @@ function RootRouteView() {
     <ToastProvider>
       <AnchoredToastProvider>
         <AuthenticatedTracingBootstrap />
+        <TypographyBootstrap />
         <ServerStateBootstrap />
         <EnvironmentConnectionManagerBootstrap />
         <EventRouter />
