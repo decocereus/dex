@@ -4,12 +4,14 @@ struct AppearanceSettingsView: View {
     @Environment(ThemeManager.self) private var themeManager
     @State private var activeThemePicker: ThemePickerKind?
     @AppStorage("conversationTextSizeStep") private var textSizeStep = ConversationTextSize.large.rawValue
+    @AppStorage(GlassPreference.storageKey) private var useLiquidGlass = true
 
     var body: some View {
         ZStack {
             LitterTheme.backgroundGradient.ignoresSafeArea()
             Form {
                 fontSizeSection
+                glassSection
                 conversationPreviewSection
                 lightThemeSection
                 darkThemeSection
@@ -28,6 +30,35 @@ struct AppearanceSettingsView: View {
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var glassSection: some View {
+        Section {
+            Toggle(isOn: $useLiquidGlass) {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .foregroundColor(LitterTheme.accent)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Liquid Glass")
+                            .litterFont(.subheadline)
+                            .foregroundColor(LitterTheme.textPrimary)
+                        Text(
+                            GlassPreference.isSupported
+                                ? "Use glass-style surfaces where the system supports them."
+                                : "Uses material-style surfaces on this iOS version."
+                        )
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textSecondary)
+                    }
+                }
+            }
+            .tint(LitterTheme.accent)
+            .listRowBackground(LitterTheme.surface.opacity(0.6))
+        } header: {
+            Text("Chrome")
+                .foregroundColor(LitterTheme.textSecondary)
         }
     }
 

@@ -107,6 +107,15 @@ enum LitterTheme {
     }
 }
 
+enum GlassPreference {
+    static let storageKey = "litter.useLiquidGlass"
+
+    static var isSupported: Bool {
+        if #available(iOS 26, *) { return true }
+        return false
+    }
+}
+
 enum FontFamilyOption: String, CaseIterable, Identifiable {
     case mono = "mono"
     case system = "system"
@@ -508,11 +517,12 @@ func relativeDate(_ timestamp: Int64) -> String {
 // MARK: - Glass Effect Availability Wrappers
 
 struct GlassRectModifier: ViewModifier {
+    @AppStorage(GlassPreference.storageKey) private var glassEnabled = true
     let cornerRadius: CGFloat
     var tint: Color?
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), glassEnabled {
             if let tint {
                 content.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
             } else {
@@ -531,10 +541,11 @@ struct GlassRectModifier: ViewModifier {
 }
 
 struct GlassRoundedRectModifier: ViewModifier {
+    @AppStorage(GlassPreference.storageKey) private var glassEnabled = true
     var cornerRadius: CGFloat = 16
 
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), glassEnabled {
             content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
         } else {
             content
@@ -545,8 +556,9 @@ struct GlassRoundedRectModifier: ViewModifier {
 }
 
 struct GlassCapsuleModifier: ViewModifier {
+    @AppStorage(GlassPreference.storageKey) private var glassEnabled = true
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), glassEnabled {
             content.glassEffect(.regular, in: .capsule)
         } else {
             content
@@ -557,8 +569,9 @@ struct GlassCapsuleModifier: ViewModifier {
 }
 
 struct GlassCircleModifier: ViewModifier {
+    @AppStorage(GlassPreference.storageKey) private var glassEnabled = true
     func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), glassEnabled {
             content.glassEffect(.regular, in: .circle)
         } else {
             content
