@@ -111,10 +111,9 @@ final class LitterUITests: XCTestCase {
         openLegacyConnectionsIfNeeded(in: app)
         let codexRows = codexDiscoveryRows(in: app)
         let sshRows = sshDiscoveryRows(in: app)
-        let preferredHost = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", ".203"))
 
         return waitUntil(timeout: timeout) {
-            preferredHost.firstMatch.exists || codexRows.firstMatch.exists || sshRows.firstMatch.exists
+            codexRows.count + sshRows.count > 0
         }
     }
 
