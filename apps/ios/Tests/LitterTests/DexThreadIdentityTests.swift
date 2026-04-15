@@ -10,16 +10,16 @@ final class DexThreadIdentityTests: XCTestCase {
         )
 
         let key = AppModel.authoritativeDexThreadKey(
-            serverId: "dex-companion:env-1::project-1",
+            serverId: "dex-desktop:env-1::project-1",
             nativeSnapshot: snapshot
         )
 
-        XCTAssertEqual(key.serverId, "dex-companion:env-1::project-1")
+        XCTAssertEqual(key.serverId, "dex-desktop:env-1::project-1")
         XCTAssertEqual(key.threadId, "thread-from-server")
     }
 
     func testClearDexThreadStateLocallyClearsMatchingActiveThread() {
-        let key = ThreadKey(serverId: "dex-companion:env-1::project-1", threadId: "thread-1")
+        let key = ThreadKey(serverId: "dex-desktop:env-1::project-1", threadId: "thread-1")
         let model = AppModel()
         model.applySnapshot(makeSnapshot(activeThread: key))
 
@@ -29,7 +29,7 @@ final class DexThreadIdentityTests: XCTestCase {
     }
 
     func testClearDexEnvironmentStateLocallyClearsMatchingActiveThread() {
-        let key = ThreadKey(serverId: "dex-companion:env-1::project-1", threadId: "thread-1")
+        let key = ThreadKey(serverId: "dex-desktop:env-1::project-1", threadId: "thread-1")
         let model = AppModel()
         model.applySnapshot(makeSnapshot(activeThread: key))
 
@@ -99,7 +99,7 @@ final class DexThreadIdentityTests: XCTestCase {
 
     private func makeSnapshot(activeThread: ThreadKey?) -> AppSnapshotRecord {
         let server = AppServerSnapshot(
-            serverId: "dex-companion:env-1::project-1",
+            serverId: "dex-desktop:env-1::project-1",
             displayName: "Dex Desktop",
             host: "dex.local",
             port: 8080,

@@ -1,29 +1,38 @@
 import Foundation
 
 enum DexCompanionRouting {
+    private static let primaryPrefix = "dex-desktop:"
+    private static let legacyPrefix = "dex-companion:"
+
     static func serverId(for environmentId: String, projectId: String? = nil) -> String {
         if let projectId, !projectId.isEmpty {
-            return "dex-companion:\(environmentId)::\(projectId)"
+            return "\(primaryPrefix)\(environmentId)::\(projectId)"
         }
-        return "dex-companion:\(environmentId)"
+        return "\(primaryPrefix)\(environmentId)"
     }
 
     static func environmentId(fromServerId serverId: String) -> String? {
-        let prefix = "dex-companion:"
-        guard serverId.hasPrefix(prefix) else { return nil }
-        let remainder = String(serverId.dropFirst(prefix.count))
+        guard let remainder = remainder(fromServerId: serverId) else { return nil }
         let environmentId = remainder.components(separatedBy: "::").first ?? remainder
         return environmentId.isEmpty ? nil : environmentId
     }
 
     static func projectId(fromServerId serverId: String) -> String? {
-        let prefix = "dex-companion:"
-        guard serverId.hasPrefix(prefix) else { return nil }
-        let remainder = String(serverId.dropFirst(prefix.count))
+        guard let remainder = remainder(fromServerId: serverId) else { return nil }
         let components = remainder.components(separatedBy: "::")
         guard components.count >= 2 else { return nil }
         let projectId = components[1]
         return projectId.isEmpty ? nil : projectId
+    }
+
+    private static func remainder(fromServerId serverId: String) -> String? {
+        if serverId.hasPrefix(primaryPrefix) {
+            return String(serverId.dropFirst(primaryPrefix.count))
+        }
+        if serverId.hasPrefix(legacyPrefix) {
+            return String(serverId.dropFirst(legacyPrefix.count))
+        }
+        return nil
     }
 
     static func threadPath(environmentId: String, threadId: String) -> String {
