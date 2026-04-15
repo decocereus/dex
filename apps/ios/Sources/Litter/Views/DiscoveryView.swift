@@ -73,6 +73,12 @@ struct DiscoveryView: View {
     }
 
     private func refreshDiscovery() {
+        savedDexCompanionSessions = DexCompanionSessionStore.load()
+        guard DebugSettings.shared.enabled else {
+            discovery.stopScanning()
+            applyInitialServersIfNeeded()
+            return
+        }
         guard autoStartDiscovery else {
             applyInitialServersIfNeeded()
             return
@@ -82,13 +88,12 @@ struct DiscoveryView: View {
 
     private func handleAppear() {
         refreshDiscovery()
-        savedDexCompanionSessions = DexCompanionSessionStore.load()
-        guard autoStartDiscovery else { return }
+        guard autoStartDiscovery, DebugSettings.shared.enabled else { return }
         maybeStartSimulatorAutoSSH()
     }
 
     private func handleDisappear() {
-        guard autoStartDiscovery else { return }
+        guard autoStartDiscovery, DebugSettings.shared.enabled else { return }
         discovery.stopScanning()
     }
 
