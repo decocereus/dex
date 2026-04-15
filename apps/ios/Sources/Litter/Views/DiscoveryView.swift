@@ -173,20 +173,9 @@ struct DiscoveryView: View {
 
     @MainActor
     private func openPairedDexProject(_ choice: PairedDexDesktopSelection.ProjectChoice) {
-        let pairedServer = DiscoveredServer(
-            id: DexCompanionRouting.serverId(
-                for: choice.session.environmentId,
-                projectId: choice.project.id
-            ),
-            name: choice.project.title,
-            hostname: URL(string: choice.session.httpBaseUrl)?.host ?? "dex",
-            port: UInt16(URL(string: choice.session.httpBaseUrl)?.port ?? 443),
-            codexPorts: [],
-            sshPort: nil,
-            source: .manual,
-            hasCodexServer: true,
-            preferredConnectionMode: .directCodex,
-            metadata: [:]
+        let serverId = DexCompanionRouting.serverId(
+            for: choice.session.environmentId,
+            projectId: choice.project.id
         )
         LLog.info("companion", "opening saved paired project", fields: [
             "environmentId": choice.session.environmentId,
@@ -195,7 +184,7 @@ struct DiscoveryView: View {
         ])
         onServerSelected?(
             .dexProject(
-                serverId: pairedServer.id,
+                serverId: serverId,
                 title: choice.project.title,
                 workspaceRoot: choice.project.workspaceRoot
             )

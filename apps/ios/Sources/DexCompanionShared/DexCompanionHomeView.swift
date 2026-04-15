@@ -16,7 +16,7 @@ struct DexCompanionHomeView: View {
                     } label: {
                         Label("Pair Dex Desktop", systemImage: "qrcode.viewfinder")
                     }
-                    .accessibilityIdentifier("dexCompanion.scanQrButton")
+                    .accessibilityIdentifier("dexDesktop.scanQrButton")
                 }
 
                 Section("Paired Desktops") {
@@ -36,7 +36,7 @@ struct DexCompanionHomeView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
-                            .accessibilityIdentifier("dexCompanion.savedSession.\(session.environmentId)")
+                            .accessibilityIdentifier("dexDesktop.savedSession.\(session.environmentId)")
                             .contextMenu {
                                 Button(role: .destructive) {
                                     pendingDeleteSession = session
