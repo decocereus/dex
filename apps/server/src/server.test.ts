@@ -1775,6 +1775,91 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("allows paired mobile clients to create native mobile threads", () =>
+    Effect.gen(function* () {
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      let createdThread: OrchestrationReadModel["threads"][number] | null = null;
+      const dispatchedCommands: OrchestrationCommand[] = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatchedCommands.push(command);
+                if (command.type === "thread.create") {
+                  createdThread = {
+                    ...baseReadModel.threads[0]!,
+                    id: command.threadId,
+                    projectId: command.projectId,
+                    title: command.title,
+                    modelSelection: command.modelSelection,
+                    runtimeMode: command.runtimeMode,
+                    interactionMode: command.interactionMode,
+                    branch: command.branch,
+                    worktreePath: command.worktreePath,
+                    createdAt: command.createdAt,
+                    updatedAt: command.createdAt,
+                    archivedAt: null,
+                    deletedAt: null,
+                    messages: [],
+                    activities: [],
+                    checkpoints: [],
+                    proposedPlans: [],
+                    latestTurn: null,
+                    session: null,
+                  };
+                }
+                return { sequence: dispatchedCommands.length };
+              }),
+          },
+          projectionSnapshotQuery: {
+            getThreadDetailById: (threadId) =>
+              Effect.succeed(
+                createdThread?.id === threadId
+                  ? Option.some(createdThread)
+                  : Option.none<OrchestrationReadModel["threads"][number]>(),
+              ),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const createUrl = yield* getHttpServerUrl("/api/mobile/native/thread/create");
+      const response = yield* Effect.promise(() =>
+        fetch(createUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            projectId: defaultProjectId,
+            title: "Paired iPhone thread",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "approval-required",
+            interactionMode: "plan",
+            worktreePath: "/tmp/default-project",
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly summary: {
+          readonly title: string;
+          readonly runtimeMode: string;
+          readonly interactionMode: string;
+          readonly threadRef: { readonly threadId: string };
+        };
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(dispatchedCommands[0]?.type, "thread.create");
+      assert.equal(body.summary.title, "Paired iPhone thread");
+      assert.equal(body.summary.runtimeMode, "approval-required");
+      assert.equal(body.summary.interactionMode, "plan");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("allows paired companion clients to configure native companion threads", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
@@ -1993,6 +2078,53 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("allows paired mobile clients to search native files", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const searchRoot = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "dex-native-mobile-search-",
+      });
+      const conversationDir = path.join(searchRoot, "apps/ios/Sources/Litter/Views");
+      yield* fileSystem.makeDirectory(conversationDir, { recursive: true });
+      yield* fileSystem.writeFileString(
+        path.join(conversationDir, "ConversationView.swift"),
+        "struct ConversationView {}",
+      );
+
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const searchUrl = yield* getHttpServerUrl("/api/mobile/native/files/search");
+      const response = yield* Effect.promise(() =>
+        fetch(searchUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            cwd: searchRoot,
+            query: "ConversationView",
+            limit: 20,
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly results: ReadonlyArray<{
+          readonly path: string;
+          readonly matchType: string;
+          readonly fileName: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.results[0]?.path, "apps/ios/Sources/Litter/Views/ConversationView.swift");
+      assert.equal(body.results[0]?.matchType, "file");
+      assert.equal(body.results[0]?.fileName, "ConversationView.swift");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("allows paired companion clients to list native companion skills", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
@@ -2134,6 +2266,94 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("allows paired mobile clients to list native skills", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        layers: {
+          providerRegistry: {
+            getProviders: Effect.succeed([
+              {
+                provider: "codex" as const,
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                status: "ready" as const,
+                auth: { status: "authenticated" as const },
+                checkedAt: new Date().toISOString(),
+                models: [],
+                slashCommands: [],
+                skills: [
+                  {
+                    name: "gh-fix-ci",
+                    description: "Debug failing CI checks",
+                    path: "/Users/test/.codex/skills/gh-fix-ci/SKILL.md",
+                    scope: "user",
+                    enabled: true,
+                    displayName: "Fix CI",
+                    shortDescription: "Investigate broken GitHub Actions runs",
+                  },
+                ],
+              },
+            ]),
+            refresh: () =>
+              Effect.succeed([
+                {
+                  provider: "codex" as const,
+                  enabled: true,
+                  installed: true,
+                  version: "1.0.0",
+                  status: "ready" as const,
+                  auth: { status: "authenticated" as const },
+                  checkedAt: new Date().toISOString(),
+                  models: [],
+                  slashCommands: [],
+                  skills: [
+                    {
+                      name: "gh-fix-ci",
+                      description: "Debug failing CI checks",
+                      path: "/Users/test/.codex/skills/gh-fix-ci/SKILL.md",
+                      scope: "user",
+                      enabled: true,
+                      displayName: "Fix CI",
+                      shortDescription: "Investigate broken GitHub Actions runs",
+                    },
+                  ],
+                },
+              ]),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const skillsUrl = yield* getHttpServerUrl("/api/mobile/native/skills/list");
+      const response = yield* Effect.promise(() =>
+        fetch(skillsUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            cwd: "/Users/amartyasingh/Documents/projects/dex",
+            forceReload: true,
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as {
+        readonly skills: ReadonlyArray<{
+          readonly name: string;
+          readonly displayName: string;
+          readonly shortDescription: string;
+        }>;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.skills[0]?.name, "gh-fix-ci");
+      assert.equal(body.skills[0]?.displayName, "Fix CI");
+      assert.equal(body.skills[0]?.shortDescription, "Investigate broken GitHub Actions runs");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("rejects non-owner companion dispatch for disallowed command types", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest();
@@ -2180,6 +2400,41 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             type: "thread.create",
             commandId: CommandId.make("companion-disallowed"),
             threadId: ThreadId.make("thread-companion-disallowed"),
+            projectId: defaultProjectId,
+            title: "Should fail",
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: new Date().toISOString(),
+          }),
+        }),
+      );
+      const body = (yield* Effect.promise(() => response.json())) as { readonly error: string };
+
+      assert.equal(response.status, 400);
+      assert.include(body.error, "Client sessions cannot dispatch thread.create");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("rejects non-owner mobile dispatch for disallowed command types", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest();
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const dispatchUrl = yield* getHttpServerUrl("/api/mobile/dispatch");
+      const response = yield* Effect.promise(() =>
+        fetch(dispatchUrl, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "thread.create",
+            commandId: CommandId.make("mobile-disallowed"),
+            threadId: ThreadId.make("thread-mobile-disallowed"),
             projectId: defaultProjectId,
             title: "Should fail",
             modelSelection: defaultModelSelection,
