@@ -177,6 +177,11 @@ targets:
         GENERATE_INFOPLIST_FILE: true
         CODE_SIGNING_ALLOWED: false
         CODE_SIGNING_REQUIRED: false
+        OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lcodex_mobile_client"
+        HEADER_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/GeneratedRust/Headers"
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(PROJECT_DIR)/GeneratedRust/Headers"
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device"
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim"
   LitterUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -192,6 +197,11 @@ targets:
         TEST_TARGET_NAME: Litter
         CODE_SIGNING_ALLOWED: false
         CODE_SIGNING_REQUIRED: false
+        OTHER_LDFLAGS: "$(inherited) -lc++ -lz -lcodex_mobile_client"
+        HEADER_SEARCH_PATHS: "$(inherited) $(PROJECT_DIR)/GeneratedRust/Headers"
+        SWIFT_INCLUDE_PATHS: "$(inherited) $(PROJECT_DIR)/GeneratedRust/Headers"
+        "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]": "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-device"
+        "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]": "$(inherited) $(PROJECT_DIR)/GeneratedRust/ios-sim"
 
 schemes:
   Litter:

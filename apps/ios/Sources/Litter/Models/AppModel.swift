@@ -118,7 +118,7 @@ final class AppModel {
         pendingSnapshotRefreshTask?.cancel()
         pendingThreadStateTask?.cancel()
         pendingCommandRowMutationTask?.cancel()
-        dexRuntime.stopThreadStream()
+        _ = dexRuntime.stopThreadStream()
         dexThreadSnapshots.removeAll()
         dexServerSnapshots.removeAll()
         dexPendingApprovalsByThread.removeAll()
@@ -163,7 +163,7 @@ final class AppModel {
         pendingCommandRowMutationTask?.cancel()
         pendingCommandRowMutationTask = nil
         pendingCommandRowMutations.removeAll()
-        dexRuntime.stopThreadStream()
+        _ = dexRuntime.stopThreadStream()
         dexThreadSnapshots.removeAll()
         dexServerSnapshots.removeAll()
         dexPendingApprovalsByThread.removeAll()

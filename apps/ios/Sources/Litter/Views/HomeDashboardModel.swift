@@ -22,10 +22,6 @@ final class HomeDashboardModel {
     @ObservationIgnored private var dexSnapshot = Snapshot(connectedServers: [], recentSessions: [])
     @ObservationIgnored private var dexDashboardConsumerActive = false
 
-    deinit {
-        deactivateDexDashboardConsumerIfNeeded()
-    }
-
     func bind(appModel: AppModel) {
         self.appModel = appModel
         guard isActive else { return }

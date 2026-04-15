@@ -15,7 +15,7 @@ enum DexCompanionDashboardIndex {
         )
     }
 
-    static func makeSnapshot(
+    nonisolated static func makeSnapshot(
         savedSession: DexCompanionSavedSession,
         browserSession: DexCompanionBrowserSession,
         shellSnapshot: DexNativeShellSnapshot,
@@ -106,7 +106,7 @@ enum DexCompanionDashboardIndex {
         )
     }
 
-    static func mergeSnapshots(_ snapshots: [Snapshot], limit: Int) -> Snapshot {
+    nonisolated static func mergeSnapshots(_ snapshots: [Snapshot], limit: Int) -> Snapshot {
         let connectedServers = snapshots.flatMap(\.connectedServers)
         let recentSessions = snapshots.flatMap(\.recentSessions)
         let sessionSummaries = snapshots.flatMap(\.sessionSummaries)
@@ -173,7 +173,12 @@ enum DexCompanionDashboardIndex {
         return mergeSnapshots(Array(snapshotsByEnvironment.values), limit: limit)
     }
 
-    private static func parseDate(_ value: String) -> Date {
+    nonisolated private static func parseDate(_ value: String) -> Date {
+        let fractionalDateFormatter = ISO8601DateFormatter()
+        fractionalDateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let internetDateFormatter = ISO8601DateFormatter()
+        internetDateFormatter.formatOptions = [.withInternetDateTime]
+
         if let date = fractionalDateFormatter.date(from: value) {
             return date
         }
@@ -183,7 +188,7 @@ enum DexCompanionDashboardIndex {
         return .distantPast
     }
 
-    private static func subagentStatus(from value: String?) -> AppSubagentStatus {
+    nonisolated private static func subagentStatus(from value: String?) -> AppSubagentStatus {
         switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "pendinginit":
             return .pendingInit
@@ -202,15 +207,4 @@ enum DexCompanionDashboardIndex {
         }
     }
 
-    private static let fractionalDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let internetDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
 }

@@ -178,7 +178,7 @@ enum HomeDashboardSupport {
         return lastPathComponent.isEmpty ? trimmed : lastPathComponent
     }
 
-    static func mergeServers(
+    nonisolated static func mergeServers(
         native: [HomeDashboardServer],
         dexCompanion: [HomeDashboardServer]
     ) -> [HomeDashboardServer] {
@@ -188,7 +188,7 @@ enum HomeDashboardSupport {
         }
     }
 
-    static func mergeRecentSessions(
+    nonisolated static func mergeRecentSessions(
         native: [HomeDashboardRecentSession],
         dexCompanion: [HomeDashboardRecentSession],
         limit: Int = 10

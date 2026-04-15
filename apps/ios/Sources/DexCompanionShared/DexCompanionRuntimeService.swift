@@ -5,7 +5,6 @@ struct DexCompanionResolvedConnection {
     let client: DexCompanionClient
 }
 
-@MainActor
 final class DexCompanionRuntimeService {
     static let shared = DexCompanionRuntimeService()
 
@@ -192,9 +191,9 @@ final class DexCompanionRuntimeService {
 
     func startThreadStream(
         key: ThreadKey,
-        onSnapshot: @escaping @MainActor (DexCompanionResolvedConnection, DexNativeThreadSnapshot) -> Void,
-        onNonFatalError: @escaping @MainActor (Error) -> Void,
-        onReconnectableError: @escaping @MainActor (NSError) -> Void
+        onSnapshot: @escaping @Sendable @MainActor (DexCompanionResolvedConnection, DexNativeThreadSnapshot) -> Void,
+        onNonFatalError: @escaping @Sendable @MainActor (Error) -> Void,
+        onReconnectableError: @escaping @Sendable @MainActor (NSError) -> Void
     ) -> Bool {
         guard DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil else {
             _ = stopThreadStream()
@@ -205,7 +204,7 @@ final class DexCompanionRuntimeService {
         threadStreamTask?.cancel()
         threadStreamKey = key
         threadStreamTask = Task {
-            guard let connection = await MainActor.run(body: { self.resolveConnection(forServerId: key.serverId) }) else {
+            guard let connection = self.resolveConnection(forServerId: key.serverId) else {
                 return
             }
 
@@ -213,7 +212,9 @@ final class DexCompanionRuntimeService {
                 do {
                     try await connection.client.streamNativeThreadSnapshots(threadId: key.threadId) { snapshot in
                         guard !Task.isCancelled else { return }
-                        await onSnapshot(connection, snapshot)
+                        await MainActor.run {
+                            onSnapshot(connection, snapshot)
+                        }
                     }
                     break
                 } catch {
@@ -228,9 +229,13 @@ final class DexCompanionRuntimeService {
                             nsError.code == NSURLErrorNetworkConnectionLost)
 
                     if isReconnectable {
-                        await onReconnectableError(nsError)
+                        await MainActor.run {
+                            onReconnectableError(nsError)
+                        }
                     } else {
-                        await onNonFatalError(error)
+                        await MainActor.run {
+                            onNonFatalError(error)
+                        }
                     }
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }

@@ -44,10 +44,6 @@ final class SessionsModel {
     )
     @ObservationIgnored private var dexDashboardConsumerActive = false
 
-    deinit {
-        deactivateDexDashboardConsumerIfNeeded()
-    }
-
     func bind(appModel: AppModel, appState: AppState) {
         let needsRebind = self.appModel !== appModel || self.appState !== appState
 

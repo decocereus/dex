@@ -10,6 +10,11 @@ private let conversationViewSignpostLog = OSLog(
 )
 
 enum ConversationStreamingViewportPolicy {
+    enum LiveTurnRenderMode {
+        case rich
+        case lightweight
+    }
+
     static func shouldMaintainBottomAnchor(
         isStreaming: Bool,
         isNearBottom: Bool,
@@ -21,6 +26,30 @@ enum ConversationStreamingViewportPolicy {
             return autoFollowStreaming
         }
         return isNearBottom
+    }
+
+    static func shouldUseLightweightLiveRendering(
+        isStreaming: Bool,
+        isNearBottom: Bool,
+        autoFollowStreaming: Bool,
+        userIsDraggingScroll: Bool
+    ) -> Bool {
+        isStreaming && !shouldMaintainBottomAnchor(
+            isStreaming: isStreaming,
+            isNearBottom: isNearBottom,
+            autoFollowStreaming: autoFollowStreaming,
+            userIsDraggingScroll: userIsDraggingScroll
+        )
+    }
+
+    static func resolveLiveTurnRenderMode(
+        current: LiveTurnRenderMode,
+        shouldUseLightweight: Bool
+    ) -> LiveTurnRenderMode {
+        if current == .rich {
+            return .rich
+        }
+        return shouldUseLightweight ? .lightweight : .rich
     }
 
     static func isStreaming(_ threadStatus: ConversationStatus) -> Bool {
