@@ -3,6 +3,12 @@ import SwiftUI
 
 @MainActor
 enum DexCompanionDashboardIndex {
+    private struct LoadedSessionSnapshot {
+        let savedSession: DexCompanionSavedSession
+        let browserSession: DexCompanionBrowserSession
+        let shellSnapshot: DexNativeShellSnapshot
+    }
+
     struct Snapshot: Equatable {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
@@ -20,21 +26,46 @@ enum DexCompanionDashboardIndex {
         var connectedServers: [HomeDashboardServer] = []
         var recentSessions: [HomeDashboardRecentSession] = []
         var sessionSummaries: [AppSessionSummary] = []
+        let loadedSnapshots = await withTaskGroup(of: LoadedSessionSnapshot?.self) { group in
+            for savedSession in savedSessions {
+                group.addTask {
+                    guard let browserSession = savedSession.makeBrowserSession() else {
+                        await MainActor.run {
+                            DexCompanionSessionStore.remove(environmentId: savedSession.environmentId)
+                        }
+                        return nil
+                    }
 
-        for savedSession in savedSessions {
-            guard let browserSession = savedSession.makeBrowserSession() else {
-                DexCompanionSessionStore.remove(environmentId: savedSession.environmentId)
-                continue
+                    let client = DexCompanionClient(
+                        httpBaseUrl: browserSession.httpBaseUrl,
+                        bearerToken: browserSession.bearerToken
+                    )
+
+                    guard let shellSnapshot = try? await client.fetchNativeShellSnapshot() else {
+                        return nil
+                    }
+
+                    return LoadedSessionSnapshot(
+                        savedSession: savedSession,
+                        browserSession: browserSession,
+                        shellSnapshot: shellSnapshot
+                    )
+                }
             }
 
-            let client = DexCompanionClient(
-                httpBaseUrl: browserSession.httpBaseUrl,
-                bearerToken: browserSession.bearerToken
-            )
-
-            guard let shellSnapshot = try? await client.fetchNativeShellSnapshot() else {
-                continue
+            var results: [LoadedSessionSnapshot] = []
+            for await result in group {
+                if let result {
+                    results.append(result)
+                }
             }
+            return results
+        }
+
+        for loaded in loadedSnapshots {
+            let savedSession = loaded.savedSession
+            let browserSession = loaded.browserSession
+            let shellSnapshot = loaded.shellSnapshot
 
             let host = URL(string: browserSession.httpBaseUrl)?.host ?? "dex"
             let port = UInt16(URL(string: browserSession.httpBaseUrl)?.port ?? 443)
