@@ -473,9 +473,9 @@ private struct HomeNavigationView: View {
         case conversationInfo(ThreadKey)
         case wallpaperSelection(ThreadKey)
         case wallpaperAdjust(ThreadKey)
-        case serverInfo(serverId: String)
-        case serverWallpaperSelection(serverId: String)
-        case serverWallpaperAdjust(serverId: String)
+        case connectionInfo(serverId: String)
+        case connectionWallpaperSelection(serverId: String)
+        case connectionWallpaperAdjust(serverId: String)
         case replayRecording(URL)
     }
 
@@ -558,7 +558,7 @@ private struct HomeNavigationView: View {
                             openConversation(key)
                         },
                         onInfo: {
-                            navigationPath.append(.serverInfo(serverId: serverId))
+                            navigationPath.append(.connectionInfo(serverId: serverId))
                         }
                     )
                         .navigationTitle(title)
@@ -629,35 +629,35 @@ private struct HomeNavigationView: View {
                     )
                     .toolbar(.hidden, for: .navigationBar)
                     .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-                case let .serverInfo(serverId):
+                case let .connectionInfo(serverId):
                     ConversationInfoView(
                         threadKey: nil,
                         serverId: serverId,
-                        onOpenWallpaper: { navigationPath.append(.serverWallpaperSelection(serverId: serverId)) }
+                        onOpenWallpaper: { navigationPath.append(.connectionWallpaperSelection(serverId: serverId)) }
                     )
-                case let .serverWallpaperSelection(serverId):
+                case let .connectionWallpaperSelection(serverId):
                     WallpaperSelectionView(
                         threadKey: nil,
                         serverId: serverId,
                         onSelectWallpaper: { config, image in
                             pendingWallpaperConfig = config
                             pendingWallpaperImage = image
-                            navigationPath.append(.serverWallpaperAdjust(serverId: serverId))
+                            navigationPath.append(.connectionWallpaperAdjust(serverId: serverId))
                         },
                         onClose: {
-                            popToServerInfo()
+                            popToConnectionInfo()
                         }
                     )
                     .toolbar(.hidden, for: .navigationBar)
                     .background(LitterTheme.backgroundGradient.ignoresSafeArea())
-                case let .serverWallpaperAdjust(serverId):
+                case let .connectionWallpaperAdjust(serverId):
                     WallpaperAdjustView(
                         threadKey: nil,
                         serverId: serverId,
                         initialConfig: pendingWallpaperConfig ?? WallpaperConfig(),
                         customImage: pendingWallpaperImage,
                         onDone: {
-                            popToServerInfo()
+                            popToConnectionInfo()
                         }
                     )
                     .toolbar(.hidden, for: .navigationBar)
@@ -1039,9 +1039,9 @@ private struct HomeNavigationView: View {
         }
     }
 
-    private func popToServerInfo() {
+    private func popToConnectionInfo() {
         while let last = navigationPath.last {
-            if case .serverInfo = last { break }
+            if case .connectionInfo = last { break }
             navigationPath.removeLast()
         }
     }
