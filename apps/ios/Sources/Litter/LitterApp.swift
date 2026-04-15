@@ -532,10 +532,10 @@ private struct HomeNavigationView: View {
                             appModel.store.renameServer(serverId: serverId, displayName: newName)
                         },
                         onForgetDexDesktop: { serverId in
-                            if let environmentId = DexCompanionRouting.environmentId(fromServerId: serverId) {
-                                DexCompanionSessionStore.remove(environmentId: environmentId)
+                            if let environmentId = DexDesktopRouting.environmentId(fromServerId: serverId) {
+                                DexDesktopSessionStore.remove(environmentId: environmentId)
                                 appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
-                                DexCompanionDashboardService.shared.refresh()
+                                DexDesktopDashboardService.shared.refresh()
                             }
                         },
                         onOpenRecording: { url in
@@ -748,7 +748,7 @@ private struct HomeNavigationView: View {
 
     private func handleNewSessionTap() {
         if let defaultServerId = defaultNewSessionServerId(preferredServerId: appState.sessionsSelectedServerFilterId) {
-            if DexCompanionRouting.environmentId(fromServerId: defaultServerId) != nil,
+            if DexDesktopRouting.environmentId(fromServerId: defaultServerId) != nil,
                let server = homeDashboardModel.connectedServers.first(where: { $0.id == defaultServerId }) {
                 let cwd = server.workspaceRoot ?? ""
                 LLog.info("session-launch", "starting paired dex session from home", fields: [
@@ -881,7 +881,7 @@ private struct HomeNavigationView: View {
     }
 
     private func startNewSession(serverId: String, cwd: String) async {
-        if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: serverId) != nil {
             do {
                 let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 let selectedEffort = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)

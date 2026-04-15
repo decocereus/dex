@@ -11,7 +11,7 @@ struct DirectoryPickerServerOption: Identifiable, Hashable {
     let workspaceRoot: String?
 
     var isDexProject: Bool {
-        DexCompanionRouting.environmentId(fromServerId: id) != nil
+        DexDesktopRouting.environmentId(fromServerId: id) != nil
     }
 }
 
@@ -372,7 +372,7 @@ struct DirectoryPickerView: View {
     }
 
     private var selectedServerIsDexManaged: Bool {
-        DexCompanionRouting.environmentId(fromServerId: selectedServerId) != nil
+        DexDesktopRouting.environmentId(fromServerId: selectedServerId) != nil
     }
 
     private var selectionSummaryLabel: String {

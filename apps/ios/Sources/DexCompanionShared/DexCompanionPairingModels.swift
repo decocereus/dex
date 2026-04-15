@@ -1,6 +1,6 @@
 import Foundation
 
-struct DexCompanionPairingPayload: Codable, Equatable {
+struct DexDesktopPairingPayload: Codable, Equatable {
     struct EnvironmentDescriptor: Codable, Equatable {
         let environmentId: String
         let label: String
@@ -30,12 +30,12 @@ struct DexCompanionPairingPayload: Codable, Equatable {
     let pairing: PairingCredential
 }
 
-enum DexCompanionQRValidationResult {
-    case success(DexCompanionPairingPayload)
+enum DexDesktopQRValidationResult {
+    case success(DexDesktopPairingPayload)
     case scanError(String)
 }
 
-func validateDexCompanionPairingPayload(_ code: String, now: Date = Date()) -> DexCompanionQRValidationResult {
+func validateDexDesktopPairingPayload(_ code: String, now: Date = Date()) -> DexDesktopQRValidationResult {
     let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
         return .scanError("QR code was empty.")
@@ -47,7 +47,7 @@ func validateDexCompanionPairingPayload(_ code: String, now: Date = Date()) -> D
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
 
-    guard let payload = try? decoder.decode(DexCompanionPairingPayload.self, from: data) else {
+    guard let payload = try? decoder.decode(DexDesktopPairingPayload.self, from: data) else {
         return .scanError("Not a valid Dex desktop pairing payload.")
     }
 
@@ -79,4 +79,11 @@ func validateDexCompanionPairingPayload(_ code: String, now: Date = Date()) -> D
     }
 
     return .success(payload)
+}
+
+typealias DexCompanionPairingPayload = DexDesktopPairingPayload
+typealias DexCompanionQRValidationResult = DexDesktopQRValidationResult
+
+func validateDexCompanionPairingPayload(_ code: String, now: Date = Date()) -> DexDesktopQRValidationResult {
+    validateDexDesktopPairingPayload(code, now: now)
 }

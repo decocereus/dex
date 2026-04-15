@@ -51,8 +51,8 @@ import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import {
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
-  authCompanionPairingPayloadRouteLayer,
-  authCompanionWebSessionRouteLayer,
+  authDexDesktopPairingPayloadRouteLayer,
+  authDexDesktopWebSessionRouteLayer,
   authMobilePairingPayloadRouteLayer,
   authMobileWebSessionRouteLayer,
   authClientsRevokeOthersRouteLayer,
@@ -256,8 +256,8 @@ const RuntimeServicesLive = ServerRuntimeStartupLive.pipe(
 export const makeRoutesLayer = Layer.mergeAll(
   authBearerBootstrapRouteLayer,
   authBootstrapRouteLayer,
-  authCompanionPairingPayloadRouteLayer,
-  authCompanionWebSessionRouteLayer,
+  authDexDesktopPairingPayloadRouteLayer,
+  authDexDesktopWebSessionRouteLayer,
   authMobilePairingPayloadRouteLayer,
   authMobileWebSessionRouteLayer,
   authClientsRevokeOthersRouteLayer,

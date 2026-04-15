@@ -4,7 +4,7 @@ extension Notification.Name {
     static let dexDesktopSessionsDidChange = Notification.Name("dex.desktop.sessionsDidChange")
 }
 
-struct DexCompanionSavedSession: Codable, Equatable, Identifiable {
+struct DexDesktopSavedSession: Codable, Equatable, Identifiable {
     let environmentId: String
     let serverLabel: String
     let httpBaseUrl: String
@@ -14,13 +14,13 @@ struct DexCompanionSavedSession: Codable, Equatable, Identifiable {
 
     var id: String { environmentId }
 
-    func makeBrowserSession() -> DexCompanionBrowserSession? {
-        let token = (try? DexCompanionTokenStore.shared.load(environmentId: environmentId)) ?? nil
+    func makeBrowserSession() -> DexDesktopBrowserSession? {
+        let token = (try? DexDesktopTokenStore.shared.load(environmentId: environmentId)) ?? nil
         guard let bearerToken = token,
               !bearerToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        return DexCompanionBrowserSession(
+        return DexDesktopBrowserSession(
             environmentId: environmentId,
             serverLabel: serverLabel,
             httpBaseUrl: httpBaseUrl,
@@ -33,14 +33,14 @@ struct DexCompanionSavedSession: Codable, Equatable, Identifiable {
     }
 }
 
-enum DexCompanionSessionStore {
+enum DexDesktopSessionStore {
     private static let storageKey = "dex.desktop.sessions"
     private static let legacyStorageKey = "dex.companion.sessions"
 
-    static func load() -> [DexCompanionSavedSession] {
+    static func load() -> [DexDesktopSavedSession] {
         let defaults = UserDefaults.standard
         guard let data = defaults.data(forKey: storageKey) ?? defaults.data(forKey: legacyStorageKey),
-              let sessions = try? JSONDecoder().decode([DexCompanionSavedSession].self, from: data) else {
+              let sessions = try? JSONDecoder().decode([DexDesktopSavedSession].self, from: data) else {
             return []
         }
 
@@ -51,7 +51,7 @@ enum DexCompanionSessionStore {
         return sessions.sorted { $0.serverLabel.localizedCaseInsensitiveCompare($1.serverLabel) == .orderedAscending }
     }
 
-    static func save(_ sessions: [DexCompanionSavedSession]) {
+    static func save(_ sessions: [DexDesktopSavedSession]) {
         guard let data = try? JSONEncoder().encode(sessions) else { return }
         let defaults = UserDefaults.standard
         defaults.set(data, forKey: storageKey)
@@ -59,7 +59,7 @@ enum DexCompanionSessionStore {
         NotificationCenter.default.post(name: .dexDesktopSessionsDidChange, object: nil)
     }
 
-    static func upsert(_ session: DexCompanionSavedSession) {
+    static func upsert(_ session: DexDesktopSavedSession) {
         var sessions = load()
         sessions.removeAll { $0.environmentId == session.environmentId }
         sessions.append(session)
@@ -68,10 +68,10 @@ enum DexCompanionSessionStore {
 
     @discardableResult
     static func upsert(
-        from session: DexCompanionBrowserSession,
+        from session: DexDesktopBrowserSession,
         createdAt: Date = Date()
-    ) -> DexCompanionSavedSession {
-        let saved = DexCompanionSavedSession(
+    ) -> DexDesktopSavedSession {
+        let saved = DexDesktopSavedSession(
             environmentId: session.environmentId,
             serverLabel: session.serverLabel,
             httpBaseUrl: session.httpBaseUrl,
@@ -87,6 +87,9 @@ enum DexCompanionSessionStore {
         var sessions = load()
         sessions.removeAll { $0.environmentId == environmentId }
         save(sessions)
-        try? DexCompanionTokenStore.shared.delete(environmentId: environmentId)
+        try? DexDesktopTokenStore.shared.delete(environmentId: environmentId)
     }
 }
+
+typealias DexCompanionSavedSession = DexDesktopSavedSession
+typealias DexCompanionSessionStore = DexDesktopSessionStore

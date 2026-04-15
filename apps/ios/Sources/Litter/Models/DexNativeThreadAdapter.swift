@@ -11,7 +11,7 @@ struct DexNativeThreadOverlay {
 enum DexNativeThreadAdapter {
     static func makeOverlay(
         serverId: String,
-        browserSession: DexCompanionBrowserSession,
+        browserSession: DexDesktopBrowserSession,
         snapshot: DexNativeThreadSnapshot
     ) -> DexNativeThreadOverlay {
         let host = URL(string: browserSession.httpBaseUrl)?.host ?? "dex"

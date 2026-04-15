@@ -1,8 +1,8 @@
 import Foundation
 import Security
 
-final class DexCompanionTokenStore {
-    static let shared = DexCompanionTokenStore()
+final class DexDesktopTokenStore {
+    static let shared = DexDesktopTokenStore()
 
     private let service = "com.dex.ios.desktop.session"
     private let legacyService = "com.dex.ios.companion.session"
@@ -93,3 +93,5 @@ final class DexCompanionTokenStore {
         }
     }
 }
+
+typealias DexCompanionTokenStore = DexDesktopTokenStore

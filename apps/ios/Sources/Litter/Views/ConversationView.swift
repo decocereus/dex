@@ -256,7 +256,7 @@ struct ConversationView: View {
     private func forkFromMessage(_ item: ConversationItem) {
         Task {
             do {
-                if DexCompanionRouting.environmentId(fromServerId: activeThreadKey.serverId) != nil {
+                if DexDesktopRouting.environmentId(fromServerId: activeThreadKey.serverId) != nil {
                     throw NSError(
                         domain: "Litter",
                         code: 1015,
@@ -1890,7 +1890,7 @@ private struct ConversationInputBar: View {
 
     private func forkConversation() async {
         do {
-            if DexCompanionRouting.environmentId(fromServerId: snapshot.threadKey.serverId) != nil {
+            if DexDesktopRouting.environmentId(fromServerId: snapshot.threadKey.serverId) != nil {
                 throw NSError(
                     domain: "Litter",
                     code: 1021,

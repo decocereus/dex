@@ -4,13 +4,13 @@ import Network
 struct DiscoveryView: View {
     private struct PairedDexDesktopSelection: Identifiable {
         struct ProjectChoice: Identifiable {
-            let session: DexCompanionBrowserSession
+            let session: DexDesktopBrowserSession
             let project: DexNativeProjectShell
 
             var id: String { project.id }
         }
 
-        let session: DexCompanionBrowserSession
+        let session: DexDesktopBrowserSession
         let projects: [ProjectChoice]
 
         var id: String { session.environmentId }
@@ -39,8 +39,8 @@ struct DiscoveryView: View {
     @State private var showQRPairingSheet = false
     @State private var showLegacyConnections = false
     @State private var pairedDesktopSelection: PairedDexDesktopSelection?
-    @State private var savedDexCompanionSessions: [DexCompanionSavedSession] =
-        DexCompanionSessionStore.load()
+    @State private var savedDexDesktopSessions: [DexDesktopSavedSession] =
+        DexDesktopSessionStore.load()
     @State private var connectionSuccessMessage: String?
     @Environment(AppState.self) private var appState
     private let autoStartDiscovery: Bool
@@ -73,7 +73,7 @@ struct DiscoveryView: View {
     }
 
     private func refreshDiscovery() {
-        savedDexCompanionSessions = DexCompanionSessionStore.load()
+        savedDexDesktopSessions = DexDesktopSessionStore.load()
         guard DebugSettings.shared.enabled else {
             discovery.stopScanning()
             applyInitialServersIfNeeded()
@@ -98,23 +98,23 @@ struct DiscoveryView: View {
     }
 
     @MainActor
-    private func pairWithDexCompanionPayload(_ payload: DexCompanionPairingPayload) async {
+    private func pairWithDexDesktopPayload(_ payload: DexDesktopPairingPayload) async {
         do {
-            LLog.info("companion", "redeeming paired mac payload", fields: [
+            LLog.info("dex-mobile", "redeeming paired desktop payload", fields: [
                 "environmentId": payload.environment.environmentId,
                 "label": payload.environment.label,
                 "httpBaseUrl": payload.target.httpBaseUrl,
             ])
-            let session = try await DexCompanionPairingClient().redeem(payload)
-            DexCompanionSessionStore.upsert(from: session)
-            savedDexCompanionSessions = DexCompanionSessionStore.load()
+            let session = try await DexDesktopPairingClient().redeem(payload)
+            DexDesktopSessionStore.upsert(from: session)
+            savedDexDesktopSessions = DexDesktopSessionStore.load()
             showConnectionSuccess("Connected to \(session.serverLabel). Choose it below to continue.")
-            LLog.info("companion", "paired mac payload redeemed", fields: [
+            LLog.info("dex-mobile", "paired desktop payload redeemed", fields: [
                 "environmentId": session.environmentId,
                 "label": session.serverLabel,
             ])
         } catch {
-            LLog.error("companion", "paired mac payload redemption failed", error: error, fields: [
+            LLog.error("dex-mobile", "paired desktop payload redemption failed", error: error, fields: [
                 "environmentId": payload.environment.environmentId,
                 "label": payload.environment.label,
             ])
@@ -123,14 +123,14 @@ struct DiscoveryView: View {
     }
 
     @MainActor
-    private func openSavedDexCompanion(_ savedSession: DexCompanionSavedSession) async {
+    private func openSavedDexDesktop(_ savedSession: DexDesktopSavedSession) async {
         guard let session = savedSession.makeBrowserSession() else {
-            DexCompanionSessionStore.remove(environmentId: savedSession.environmentId)
-            savedDexCompanionSessions = DexCompanionSessionStore.load()
-            connectError = "This Mac needs to be paired again."
+            DexDesktopSessionStore.remove(environmentId: savedSession.environmentId)
+            savedDexDesktopSessions = DexDesktopSessionStore.load()
+            connectError = "This Dex desktop needs to be paired again."
             return
         }
-        LLog.info("companion", "opening saved paired mac", fields: [
+        LLog.info("dex-mobile", "opening saved paired desktop", fields: [
             "environmentId": savedSession.environmentId,
             "label": savedSession.serverLabel,
             "httpBaseUrl": session.httpBaseUrl,
@@ -140,11 +140,11 @@ struct DiscoveryView: View {
             bearerToken: session.bearerToken
         )
         guard let shellSnapshot = try? await client.fetchNativeShellSnapshot() else {
-            LLog.warn("companion", "saved paired mac has no available projects", fields: [
+            LLog.warn("dex-mobile", "saved paired desktop has no available projects", fields: [
                 "environmentId": savedSession.environmentId,
                 "label": savedSession.serverLabel,
             ])
-            connectError = "This Mac has no available projects yet."
+            connectError = "This Dex desktop has no available projects yet."
             return
         }
 
@@ -153,11 +153,11 @@ struct DiscoveryView: View {
         }
 
         guard let firstProject = projectChoices.first else {
-            LLog.warn("companion", "saved paired mac has no available projects", fields: [
+            LLog.warn("dex-mobile", "saved paired desktop has no available projects", fields: [
                 "environmentId": savedSession.environmentId,
                 "label": savedSession.serverLabel,
             ])
-            connectError = "This Mac has no available projects yet."
+            connectError = "This Dex desktop has no available projects yet."
             return
         }
 
@@ -173,11 +173,11 @@ struct DiscoveryView: View {
 
     @MainActor
     private func openPairedDexProject(_ choice: PairedDexDesktopSelection.ProjectChoice) {
-        let serverId = DexCompanionRouting.serverId(
+        let serverId = DexDesktopRouting.serverId(
             for: choice.session.environmentId,
             projectId: choice.project.id
         )
-        LLog.info("companion", "opening saved paired project", fields: [
+        LLog.info("dex-mobile", "opening saved paired project", fields: [
             "environmentId": choice.session.environmentId,
             "projectId": choice.project.id,
             "projectTitle": choice.project.title,
@@ -222,7 +222,7 @@ struct DiscoveryView: View {
                 MacPairingScannerView(
                     onScan: { payload in
                         Task {
-                            await pairWithDexCompanionPayload(payload)
+                            await pairWithDexDesktopPayload(payload)
                             showQRPairingSheet = false
                         }
                     },
@@ -568,7 +568,7 @@ struct DiscoveryView: View {
                         .foregroundColor(LitterTheme.accent)
                 }
             }
-            if savedDexCompanionSessions.isEmpty {
+            if savedDexDesktopSessions.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Pair your Dex desktop to continue the same threads from iPhone.")
                         .litterFont(.caption)
@@ -579,9 +579,9 @@ struct DiscoveryView: View {
                 }
                 .padding(.vertical, 4)
             } else {
-                ForEach(savedDexCompanionSessions) { savedSession in
+                ForEach(savedDexDesktopSessions) { savedSession in
                     Button {
-                        Task { await openSavedDexCompanion(savedSession) }
+                        Task { await openSavedDexDesktop(savedSession) }
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "desktopcomputer")
@@ -603,7 +603,7 @@ struct DiscoveryView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier(
-                        "discovery.dexCompanion.\(savedSession.environmentId)"
+                        "discovery.dexDesktop.\(savedSession.environmentId)"
                     )
                     .listRowBackground(LitterTheme.surface.opacity(0.6))
                 }

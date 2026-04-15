@@ -302,7 +302,7 @@ struct SessionsScreen: View {
     }
 
     private var dexManagedConnectionCount: Int {
-        connectedServers.filter { DexCompanionRouting.environmentId(fromServerId: $0.id) != nil }.count
+        connectedServers.filter { DexDesktopRouting.environmentId(fromServerId: $0.id) != nil }.count
     }
 
     private var allConnectionsAreDexManaged: Bool {
@@ -326,7 +326,7 @@ struct SessionsScreen: View {
 
     private var nativeConnectedServerIds: [String] {
         connectedServers
-            .filter { DexCompanionRouting.environmentId(fromServerId: $0.id) == nil }
+            .filter { DexDesktopRouting.environmentId(fromServerId: $0.id) == nil }
             .map(\.id)
     }
 
@@ -389,7 +389,7 @@ struct SessionsScreen: View {
 
             if let defaultServerId = defaultNewSessionServerId(preferredServerId: preferredServerId) {
                 if let server = connectedServers.first(where: { $0.id == defaultServerId }),
-                   DexCompanionRouting.environmentId(fromServerId: defaultServerId) != nil {
+                   DexDesktopRouting.environmentId(fromServerId: defaultServerId) != nil {
                     let cwd = server.workspaceRoot ?? ""
                     LLog.info("session-launch", "starting paired dex session from sessions screen", fields: [
                         "serverId": defaultServerId,
@@ -714,7 +714,7 @@ struct SessionsScreen: View {
                                         sessionRowContextMenu(thread)
                                     }
                                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                        if DexCompanionRouting.environmentId(fromServerId: thread.key.serverId) == nil {
+                                        if DexDesktopRouting.environmentId(fromServerId: thread.key.serverId) == nil {
                                             Button {
                                                 Task { await forkThread(thread) }
                                             } label: {
@@ -767,7 +767,7 @@ struct SessionsScreen: View {
             Label("Rename", systemImage: "pencil")
         }
 
-        if DexCompanionRouting.environmentId(fromServerId: thread.key.serverId) == nil {
+        if DexDesktopRouting.environmentId(fromServerId: thread.key.serverId) == nil {
             Button {
                 Task { await forkThread(thread) }
             } label: {
@@ -1169,7 +1169,7 @@ struct SessionsScreen: View {
     }
 
     private func startNewSession(serverId: String, cwd: String) async {
-        if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: serverId) != nil {
             do {
                 let selectedModel = appState.selectedModel.trimmingCharacters(in: .whitespacesAndNewlines)
                 let selectedEffort = appState.reasoningEffort.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1239,7 +1239,7 @@ struct SessionsScreen: View {
 
     private func forkThread(_ thread: AppSessionSummary) async {
         guard !isForkingActiveThread else { return }
-        if DexCompanionRouting.environmentId(fromServerId: thread.key.serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: thread.key.serverId) != nil {
             sessionActionErrorMessage = "Fork isn't available for paired Mac threads yet."
             return
         }

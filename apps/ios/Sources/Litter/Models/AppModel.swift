@@ -94,7 +94,7 @@ final class AppModel {
     @ObservationIgnored private var dexPendingApprovalsByThread: [ThreadKey: [PendingApproval]] = [:]
     @ObservationIgnored private var dexPendingUserInputsByThread: [ThreadKey: [PendingUserInputRequest]] = [:]
     @ObservationIgnored private var dexAuthSessionStateByServerId: [String: DexAuthSessionState] = [:]
-    @ObservationIgnored private let dexRuntime = DexCompanionRuntimeService.shared
+    @ObservationIgnored private let dexRuntime = DexDesktopRuntimeService.shared
 
     init(
         store: AppStore? = nil,
@@ -217,7 +217,7 @@ final class AppModel {
         launchConfig: AppThreadLaunchConfig,
         cwdOverride: String?
     ) async throws -> ThreadKey {
-        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: key.serverId) != nil {
             try await refreshDexThreadSnapshot(key: key)
             return key
         }
@@ -252,7 +252,7 @@ final class AppModel {
         launchConfig: AppThreadLaunchConfig,
         cwdOverride: String?
     ) async throws -> ThreadKey {
-        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: key.serverId) != nil {
             try await refreshDexThreadSnapshot(key: key)
             return key
         }
@@ -422,7 +422,7 @@ final class AppModel {
             let sessionCount = mergedSnapshot?.sessionSummaries.count ?? 0
             let threadCount = mergedSnapshot?.threads.count ?? 0
             let serverCount = mergedSnapshot?.servers.count ?? 0
-            LLog.info("companion", "applied snapshot", fields: [
+            LLog.info("dex-mobile", "applied snapshot", fields: [
                 "sessionCount": sessionCount,
                 "threadCount": threadCount,
                 "serverCount": serverCount,
@@ -1252,7 +1252,7 @@ final class AppModel {
     ) async throws -> [FileSearchResult] {
         if let dexClient = dexClient(for: serverId) {
             let cwd = params.roots.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            LLog.info("companion", "searching dex files", fields: [
+            LLog.info("dex-mobile", "searching dex files", fields: [
                 "serverId": serverId,
                 "cwd": cwd.isEmpty ? "/" : cwd,
                 "query": params.query,
@@ -1262,7 +1262,7 @@ final class AppModel {
                 query: params.query,
                 limit: 50
             )
-            LLog.info("companion", "dex file search completed", fields: [
+            LLog.info("dex-mobile", "dex file search completed", fields: [
                 "serverId": serverId,
                 "resultCount": results.count,
                 "query": params.query,
@@ -1278,7 +1278,7 @@ final class AppModel {
     ) async throws -> [SkillMetadata] {
         if let dexClient = dexClient(for: serverId) {
             let cwd = params.cwds.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            LLog.info("companion", "loading dex skills", fields: [
+            LLog.info("dex-mobile", "loading dex skills", fields: [
                 "serverId": serverId,
                 "cwd": cwd.isEmpty ? "/" : cwd,
                 "forceReload": params.forceReload,
@@ -1287,7 +1287,7 @@ final class AppModel {
                 cwd: cwd.isEmpty ? "/" : cwd,
                 forceReload: params.forceReload
             )
-            LLog.info("companion", "dex skills loaded", fields: [
+            LLog.info("dex-mobile", "dex skills loaded", fields: [
                 "serverId": serverId,
                 "skillCount": skills.count,
                 "cwd": cwd.isEmpty ? "/" : cwd,
@@ -1321,7 +1321,7 @@ final class AppModel {
     }
 
     func isDexManagedServer(_ serverId: String) -> Bool {
-        DexCompanionRouting.environmentId(fromServerId: serverId) != nil
+        DexDesktopRouting.environmentId(fromServerId: serverId) != nil
     }
 
     func dexAuthSessionState(for serverId: String) -> DexAuthSessionState? {
@@ -1340,7 +1340,7 @@ final class AppModel {
     }
 
     func loadConversationMetadataIfNeeded(serverId: String) async {
-        if DexCompanionRouting.environmentId(fromServerId: serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: serverId) != nil {
             await loadDexServerAuthStateIfNeeded(serverId: serverId)
             return
         }
@@ -1470,7 +1470,7 @@ final class AppModel {
 
     private func applyDexThreadSnapshot(
         key: ThreadKey,
-        browserSession: DexCompanionBrowserSession,
+        browserSession: DexDesktopBrowserSession,
         nativeSnapshot: DexNativeThreadSnapshot
     ) {
         let previousThread = dexThreadSnapshots[key]
@@ -1507,7 +1507,7 @@ final class AppModel {
             previousActiveTurnId != nextActiveTurnId ||
             previousApprovals.count != overlay.pendingApprovals.count ||
             previousUserInputs.count != overlay.pendingUserInputs.count {
-            LLog.trace("companion", "applied dex thread snapshot", fields: [
+            LLog.trace("dex-mobile", "applied dex thread snapshot", fields: [
                 "serverId": key.serverId,
                 "threadId": key.threadId,
                 "messageCount": nextMessageCount,
@@ -1546,12 +1546,12 @@ final class AppModel {
     func clearDexEnvironmentStateLocally(environmentId: String) {
         let matchingServerIds = Set(
             dexServerSnapshots.keys.filter {
-                DexCompanionRouting.environmentId(fromServerId: $0) == environmentId
+                DexDesktopRouting.environmentId(fromServerId: $0) == environmentId
             }
         )
         let matchingThreadKeys = Set(
             dexThreadSnapshots.keys.filter {
-                DexCompanionRouting.environmentId(fromServerId: $0.serverId) == environmentId
+                DexDesktopRouting.environmentId(fromServerId: $0.serverId) == environmentId
             }
         )
 
@@ -1569,7 +1569,7 @@ final class AppModel {
 
         if var snapshot,
            let activeThread = snapshot.activeThread,
-           DexCompanionRouting.environmentId(fromServerId: activeThread.serverId) == environmentId {
+           DexDesktopRouting.environmentId(fromServerId: activeThread.serverId) == environmentId {
             snapshot.activeThread = nil
             self.snapshot = snapshot
         } else {
@@ -1578,9 +1578,9 @@ final class AppModel {
     }
 
     private func startDexThreadStreamIfNeeded(for key: ThreadKey?) {
-        guard let key, DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil else {
+        guard let key, DexDesktopRouting.environmentId(fromServerId: key.serverId) != nil else {
             if let previousKey = dexRuntime.stopThreadStream() {
-                LLog.info("companion", "stopping dex thread stream", fields: [
+                LLog.info("dex-mobile", "stopping dex thread stream", fields: [
                     "serverId": previousKey.serverId,
                     "threadId": previousKey.threadId,
                 ])
@@ -1598,13 +1598,13 @@ final class AppModel {
             },
             onNonFatalError: { [weak self] error in
                 self?.lastError = error.localizedDescription
-                LLog.error("companion", "dex thread stream failed", error: error, fields: [
+                LLog.error("dex-mobile", "dex thread stream failed", error: error, fields: [
                     "serverId": key.serverId,
                     "threadId": key.threadId,
                 ])
             },
             onReconnectableError: { nsError in
-                LLog.info("companion", "dex thread stream reconnecting", fields: [
+                LLog.info("dex-mobile", "dex thread stream reconnecting", fields: [
                     "serverId": key.serverId,
                     "threadId": key.threadId,
                     "errorCode": nsError.code,
@@ -1612,7 +1612,7 @@ final class AppModel {
             }
         )
         if didStart, let connection = dexRuntime.resolveConnection(forServerId: key.serverId) {
-            LLog.info("companion", "starting dex thread stream", fields: [
+            LLog.info("dex-mobile", "starting dex thread stream", fields: [
                 "serverId": key.serverId,
                 "threadId": key.threadId,
                 "httpBaseUrl": connection.session.httpBaseUrl,
@@ -1684,7 +1684,7 @@ final class AppModel {
             interactionMode: interactionMode
         )
 
-        LLog.info("companion", "starting dex turn", fields: [
+        LLog.info("dex-mobile", "starting dex turn", fields: [
             "serverId": key.serverId,
             "threadId": key.threadId,
             "textLength": text.count,
@@ -1705,7 +1705,7 @@ final class AppModel {
             interactionMode: interactionMode
         )
         try await refreshDexThreadSnapshot(key: key)
-        LLog.info("companion", "dex turn started", fields: [
+        LLog.info("dex-mobile", "dex turn started", fields: [
             "serverId": key.serverId,
             "threadId": key.threadId,
         ])
@@ -1845,7 +1845,7 @@ final class AppModel {
             (interactionMode != nil && interactionMode != currentInteractionMode)
         guard shouldConfigure else { return }
 
-        LLog.info("companion", "configuring dex thread", fields: [
+        LLog.info("dex-mobile", "configuring dex thread", fields: [
             "serverId": key.serverId,
             "threadId": key.threadId,
             "updatesTitle": title != nil,
@@ -2022,7 +2022,7 @@ final class AppModel {
         fastMode: Bool = false,
         interactionMode: AppModeKind = .default
     ) async throws -> ThreadKey? {
-        guard let projectId = DexCompanionRouting.projectId(fromServerId: serverId),
+        guard let projectId = DexDesktopRouting.projectId(fromServerId: serverId),
               dexClient(for: serverId) != nil
         else {
             return nil
@@ -2041,7 +2041,7 @@ final class AppModel {
             fallbackModel: "gpt-5.4"
         )
 
-        LLog.info("companion", "creating dex thread", fields: [
+        LLog.info("dex-mobile", "creating dex thread", fields: [
             "serverId": serverId,
             "projectId": projectId,
             "cwd": cwd ?? "",
@@ -2067,7 +2067,7 @@ final class AppModel {
             browserSession: result.connection.session,
             nativeSnapshot: result.snapshot
         )
-        LLog.info("companion", "created dex thread", fields: [
+        LLog.info("dex-mobile", "created dex thread", fields: [
             "serverId": serverId,
             "threadId": key.threadId,
         ])
@@ -2075,7 +2075,7 @@ final class AppModel {
     }
 
     func hydrateThreadPermissions(for key: ThreadKey, appState: AppState) async -> ThreadKey? {
-        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: key.serverId) != nil {
             do {
                 try await refreshDexThreadSnapshot(key: key)
                 if let existing = threadSnapshot(for: key) {
@@ -2175,7 +2175,7 @@ final class AppModel {
         key: ThreadKey,
         maxAttempts: Int = 5
     ) async -> ThreadKey? {
-        if DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: key.serverId) != nil {
             do {
                 try await refreshDexThreadSnapshot(key: key)
                 return threadSnapshot(for: key) != nil ? key : nil

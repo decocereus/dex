@@ -1,6 +1,6 @@
 import Foundation
 
-enum DexCompanionRouting {
+enum DexDesktopRouting {
     private static let primaryPrefix = "dex-desktop:"
     private static let legacyPrefix = "dex-companion:"
 
@@ -43,9 +43,9 @@ enum DexCompanionRouting {
         "/_chat/"
     }
 
-    static func browserSession(forServerId serverId: String) -> DexCompanionBrowserSession? {
+    static func browserSession(forServerId serverId: String) -> DexDesktopBrowserSession? {
         guard let environmentId = environmentId(fromServerId: serverId) else { return nil }
-        return DexCompanionSessionStore.load()
+        return DexDesktopSessionStore.load()
             .first(where: { $0.environmentId == environmentId })?
             .makeBrowserSession()?
             .withNavigation(
@@ -54,3 +54,5 @@ enum DexCompanionRouting {
             )
     }
 }
+
+typealias DexCompanionRouting = DexDesktopRouting

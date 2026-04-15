@@ -1,6 +1,6 @@
 import Foundation
 
-struct DexCompanionBrowserSession: Identifiable, Equatable, Hashable {
+struct DexDesktopBrowserSession: Identifiable, Equatable, Hashable {
     let environmentId: String
     let serverLabel: String
     let httpBaseUrl: String
@@ -15,8 +15,8 @@ struct DexCompanionBrowserSession: Identifiable, Equatable, Hashable {
     func withNavigation(
         initialPath: String?,
         navigationTitle: String? = nil
-    ) -> DexCompanionBrowserSession {
-        DexCompanionBrowserSession(
+    ) -> DexDesktopBrowserSession {
+        DexDesktopBrowserSession(
             environmentId: environmentId,
             serverLabel: serverLabel,
             httpBaseUrl: httpBaseUrl,
@@ -29,7 +29,7 @@ struct DexCompanionBrowserSession: Identifiable, Equatable, Hashable {
     }
 }
 
-enum DexCompanionPairingError: LocalizedError {
+enum DexDesktopPairingError: LocalizedError {
     case invalidEndpoint
     case invalidResponse
     case pairingFailed(String)
@@ -46,10 +46,10 @@ enum DexCompanionPairingError: LocalizedError {
     }
 }
 
-struct DexCompanionPairingClient {
-    func redeem(_ payload: DexCompanionPairingPayload) async throws -> DexCompanionBrowserSession {
+struct DexDesktopPairingClient {
+    func redeem(_ payload: DexDesktopPairingPayload) async throws -> DexDesktopBrowserSession {
         guard let url = URL(string: payload.target.httpBaseUrl) else {
-            throw DexCompanionPairingError.invalidEndpoint
+            throw DexDesktopPairingError.invalidEndpoint
         }
         let bootstrapUrl = url.appending(path: "api/auth/bootstrap/bearer")
         var request = URLRequest(url: bootstrapUrl)
@@ -61,21 +61,21 @@ struct DexCompanionPairingClient {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw DexCompanionPairingError.invalidResponse
+            throw DexDesktopPairingError.invalidResponse
         }
         guard (200...299).contains(http.statusCode) else {
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-            throw DexCompanionPairingError.pairingFailed(message ?? "Dex pairing failed.")
+            throw DexDesktopPairingError.pairingFailed(message ?? "Dex pairing failed.")
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let token = object["sessionToken"] as? String,
               !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw DexCompanionPairingError.invalidResponse
+            throw DexDesktopPairingError.invalidResponse
         }
 
-        try DexCompanionTokenStore.shared.save(token: token, environmentId: payload.environment.environmentId)
+        try DexDesktopTokenStore.shared.save(token: token, environmentId: payload.environment.environmentId)
 
-        return DexCompanionBrowserSession(
+        return DexDesktopBrowserSession(
             environmentId: payload.environment.environmentId,
             serverLabel: payload.environment.label,
             httpBaseUrl: payload.target.httpBaseUrl,
@@ -87,3 +87,7 @@ struct DexCompanionPairingClient {
         )
     }
 }
+
+typealias DexCompanionBrowserSession = DexDesktopBrowserSession
+typealias DexCompanionPairingError = DexDesktopPairingError
+typealias DexCompanionPairingClient = DexDesktopPairingClient

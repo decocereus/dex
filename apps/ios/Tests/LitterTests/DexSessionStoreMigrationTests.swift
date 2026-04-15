@@ -13,7 +13,7 @@ final class DexSessionStoreMigrationTests: XCTestCase {
     }
 
     func testLoadReadsLegacyKeyAndMigratesToNewKey() throws {
-        let session = DexCompanionSavedSession(
+        let session = DexDesktopSavedSession(
             environmentId: "env-1",
             serverLabel: "Dex Desktop",
             httpBaseUrl: "http://localhost:8080",
@@ -25,7 +25,7 @@ final class DexSessionStoreMigrationTests: XCTestCase {
         UserDefaults.standard.set(data, forKey: legacyKey)
         UserDefaults.standard.removeObject(forKey: newKey)
 
-        let loaded = DexCompanionSessionStore.load()
+        let loaded = DexDesktopSessionStore.load()
         let migrated = UserDefaults.standard.data(forKey: newKey)
 
         XCTAssertEqual(loaded, [session])

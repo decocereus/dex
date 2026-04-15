@@ -47,7 +47,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
 import {
-  createServerCompanionPairingPayload,
+  createServerDesktopPairingPayload,
   createServerPairingCredential,
   fetchSessionState,
   revokeOtherServerClientSessions,
@@ -255,7 +255,7 @@ function resolveCurrentOriginPairingUrl(credential: string): string {
   return setPairingTokenOnUrl(url, credential).toString();
 }
 
-function deriveCompanionWsBaseUrl(httpBaseUrl: string): string {
+function deriveDesktopWsBaseUrl(httpBaseUrl: string): string {
   const url = new URL(httpBaseUrl);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
@@ -536,10 +536,10 @@ const PairIPhoneAction = memo(function PairIPhoneAction({
   size = "sm",
 }: PairIPhoneActionProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [isCreatingCompanionPayload, setIsCreatingCompanionPayload] = useState(false);
-  const [companionPayloadText, setCompanionPayloadText] = useState("");
+  const [isCreatingDesktopPayload, setIsCreatingDesktopPayload] = useState(false);
+  const [desktopPayloadText, setDesktopPayloadText] = useState("");
 
-  const handleCreateCompanionPayload = useCallback(async () => {
+  const handleCreateDesktopPayload = useCallback(async () => {
     if (!endpointUrl) {
       toastManager.add({
         type: "error",
@@ -548,24 +548,24 @@ const PairIPhoneAction = memo(function PairIPhoneAction({
       });
       return;
     }
-    setIsCreatingCompanionPayload(true);
+    setIsCreatingDesktopPayload(true);
     try {
-      console.info("[connections] creating iPhone pairing payload", { endpointUrl });
-      const payload = await createServerCompanionPairingPayload({
+      console.info("[connections] creating Dex desktop iPhone pairing payload", { endpointUrl });
+      const payload = await createServerDesktopPairingPayload({
         httpBaseUrl: endpointUrl,
-        wsBaseUrl: deriveCompanionWsBaseUrl(endpointUrl),
+        wsBaseUrl: deriveDesktopWsBaseUrl(endpointUrl),
         label: "iPhone",
       });
-      setCompanionPayloadText(JSON.stringify(payload));
-      console.info("[connections] iPhone pairing payload ready", {
+      setDesktopPayloadText(JSON.stringify(payload));
+      console.info("[connections] Dex desktop iPhone pairing payload ready", {
         endpointUrl,
         environmentId: payload.environment.environmentId,
         label: payload.environment.label,
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to create iPhone pairing payload.";
-      console.error("[connections] failed to create iPhone pairing payload", {
+        error instanceof Error ? error.message : "Failed to create Dex desktop pairing payload.";
+      console.error("[connections] failed to create Dex desktop iPhone pairing payload", {
         endpointUrl,
         message,
       });
@@ -575,16 +575,16 @@ const PairIPhoneAction = memo(function PairIPhoneAction({
         description: message,
       });
     } finally {
-      setIsCreatingCompanionPayload(false);
+      setIsCreatingDesktopPayload(false);
     }
   }, [endpointUrl]);
 
   useEffect(() => {
-    if (!dialogOpen || companionPayloadText || isCreatingCompanionPayload) {
+    if (!dialogOpen || desktopPayloadText || isCreatingDesktopPayload) {
       return;
     }
-    void handleCreateCompanionPayload();
-  }, [companionPayloadText, dialogOpen, handleCreateCompanionPayload, isCreatingCompanionPayload]);
+    void handleCreateDesktopPayload();
+  }, [desktopPayloadText, dialogOpen, handleCreateDesktopPayload, isCreatingDesktopPayload]);
 
   return (
     <Dialog
@@ -592,7 +592,7 @@ const PairIPhoneAction = memo(function PairIPhoneAction({
       onOpenChange={(open) => {
         setDialogOpen(open);
         if (!open) {
-          setCompanionPayloadText("");
+          setDesktopPayloadText("");
         }
       }}
     >
@@ -606,23 +606,25 @@ const PairIPhoneAction = memo(function PairIPhoneAction({
       />
       <DialogPopup className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Connect iPhone</DialogTitle>
-          <DialogDescription>Scan this in the iPhone app.</DialogDescription>
+          <DialogTitle>Pair iPhone</DialogTitle>
+          <DialogDescription>
+            Scan this in the iPhone app to connect it to this Dex desktop.
+          </DialogDescription>
         </DialogHeader>
         <DialogPanel>
-          {companionPayloadText ? (
+          {desktopPayloadText ? (
             <div className="flex justify-center rounded-lg border border-border/60 bg-muted/20 p-4">
               <QRCodeSvg
-                value={companionPayloadText}
+                value={desktopPayloadText}
                 size={200}
                 level="M"
                 marginSize={2}
-                title="iPhone pairing QR"
+                title="Dex desktop iPhone pairing QR"
               />
             </div>
           ) : (
             <div className="flex min-h-56 items-center justify-center rounded-lg border border-border/60 bg-muted/20 px-4 text-sm text-muted-foreground">
-              {isCreatingCompanionPayload
+              {isCreatingDesktopPayload
                 ? "Preparing QR…"
                 : endpointUrl
                   ? "Preparing QR…"
@@ -635,10 +637,10 @@ const PairIPhoneAction = memo(function PairIPhoneAction({
             Close
           </Button>
           <Button
-            disabled={isCreatingCompanionPayload || !endpointUrl}
-            onClick={() => void handleCreateCompanionPayload()}
+            disabled={isCreatingDesktopPayload || !endpointUrl}
+            onClick={() => void handleCreateDesktopPayload()}
           >
-            {isCreatingCompanionPayload ? "Refreshing…" : "Refresh QR"}
+            {isCreatingDesktopPayload ? "Refreshing…" : "Refresh QR"}
           </Button>
         </DialogFooter>
       </DialogPopup>

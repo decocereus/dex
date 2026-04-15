@@ -31,7 +31,7 @@ final class SessionsModel {
 
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private weak var appState: AppState?
-    @ObservationIgnored private let dexDashboardService = DexCompanionDashboardService.shared
+    @ObservationIgnored private let dexDashboardService = DexDesktopDashboardService.shared
     @ObservationIgnored private var searchQuery = ""
     @ObservationIgnored private var hasInitializedState = false
     @ObservationIgnored private var nativeObservationGeneration = 0

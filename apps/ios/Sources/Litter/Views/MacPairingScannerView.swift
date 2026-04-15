@@ -2,7 +2,7 @@ import AVFoundation
 import SwiftUI
 
 struct MacPairingScannerView: View {
-    let onScan: (DexCompanionPairingPayload) -> Void
+    let onScan: (DexDesktopPairingPayload) -> Void
     var onClose: (() -> Void)? = nil
 
     @State private var scannerError: String?
@@ -117,7 +117,7 @@ struct MacPairingScannerView: View {
     }
 
     private func handleScan(_ code: String, resetScanLock: @escaping () -> Void) {
-        switch validateDexCompanionPairingPayload(code) {
+        switch validateDexDesktopPairingPayload(code) {
         case .success(let payload):
             onScan(payload)
         case .scanError(let message):
@@ -127,7 +127,7 @@ struct MacPairingScannerView: View {
     }
 
     private func handleManualPayload() {
-        switch validateDexCompanionPairingPayload(manualPayload) {
+        switch validateDexDesktopPairingPayload(manualPayload) {
         case .success(let payload):
             isShowingManualEntry = false
             manualPayload = ""

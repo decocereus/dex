@@ -2,14 +2,14 @@ import type {
   AuthBootstrapInput,
   AuthBootstrapResult,
   AuthClientMetadata,
-  CompanionPairingPayload,
-  CreateCompanionPairingPayloadInput,
   AuthCreatePairingCredentialInput,
   AuthPairingCredentialResult,
   AuthRevokeClientSessionInput,
   AuthRevokePairingLinkInput,
   AuthSessionId,
   AuthSessionState,
+  DexDesktopPairingPayload,
+  CreateDexDesktopPairingPayloadInput,
 } from "@dex/contracts";
 
 import {
@@ -256,12 +256,12 @@ export async function createServerPairingCredential(
   return (await response.json()) as AuthPairingCredentialResult;
 }
 
-export async function createServerCompanionPairingPayload(input: {
+export async function createServerDesktopPairingPayload(input: {
   httpBaseUrl: string;
   wsBaseUrl: string;
   label?: string;
-}): Promise<CompanionPairingPayload> {
-  const payload: CreateCompanionPairingPayloadInput = {
+}): Promise<DexDesktopPairingPayload> {
+  const payload: CreateDexDesktopPairingPayloadInput = {
     target: {
       httpBaseUrl: input.httpBaseUrl,
       wsBaseUrl: input.wsBaseUrl,
@@ -281,13 +281,15 @@ export async function createServerCompanionPairingPayload(input: {
     throw new Error(
       await readErrorMessage(
         response,
-        `Failed to create companion pairing payload (${response.status}).`,
+        `Failed to create Dex desktop pairing payload (${response.status}).`,
       ),
     );
   }
 
-  return (await response.json()) as CompanionPairingPayload;
+  return (await response.json()) as DexDesktopPairingPayload;
 }
+
+export const createServerCompanionPairingPayload = createServerDesktopPairingPayload;
 
 export async function listServerPairingLinks(): Promise<ReadonlyArray<ServerPairingLinkRecord>> {
   const response = await fetch(resolvePrimaryEnvironmentHttpUrl("/api/auth/pairing-links"), {

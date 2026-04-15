@@ -3,14 +3,14 @@ import Observation
 
 @MainActor
 @Observable
-final class DexCompanionDashboardService {
-    static let shared = DexCompanionDashboardService()
+final class DexDesktopDashboardService {
+    static let shared = DexDesktopDashboardService()
 
-    private(set) var snapshot: DexCompanionDashboardIndex.Snapshot = .empty
+    private(set) var snapshot: DexDesktopDashboardIndex.Snapshot = .empty
 
     @ObservationIgnored private var consumerCount = 0
     @ObservationIgnored private var streamTask: Task<Void, Never>?
-    @ObservationIgnored private var environmentSnapshots: [String: DexCompanionDashboardIndex.Snapshot] = [:]
+    @ObservationIgnored private var environmentSnapshots: [String: DexDesktopDashboardIndex.Snapshot] = [:]
     @ObservationIgnored private var sessionsObserver: NSObjectProtocol?
 
     init() {
@@ -19,8 +19,10 @@ final class DexCompanionDashboardService {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self, self.consumerCount > 0 else { return }
-            self.restartStreaming()
+            Task { @MainActor [weak self] in
+                guard let self, self.consumerCount > 0 else { return }
+                self.restartStreaming()
+            }
         }
     }
 
@@ -49,12 +51,12 @@ final class DexCompanionDashboardService {
     func refresh() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let snapshotsByEnvironment = await DexCompanionDashboardIndex.loadSnapshotsByEnvironment(
+            let snapshotsByEnvironment = await DexDesktopDashboardIndex.loadSnapshotsByEnvironment(
                 limit: 200
             )
             guard !Task.isCancelled else { return }
             self.environmentSnapshots = snapshotsByEnvironment
-            self.snapshot = DexCompanionDashboardIndex.mergeSnapshots(
+            self.snapshot = DexDesktopDashboardIndex.mergeSnapshots(
                 Array(snapshotsByEnvironment.values),
                 limit: 200
             )
@@ -65,7 +67,7 @@ final class DexCompanionDashboardService {
         guard streamTask == nil else { return }
         streamTask = Task { [weak self] in
             while let self, await MainActor.run(body: { self.consumerCount > 0 }), !Task.isCancelled {
-                let savedSessions = await MainActor.run { DexCompanionSessionStore.load() }
+                let savedSessions = await MainActor.run { DexDesktopSessionStore.load() }
                 if savedSessions.isEmpty {
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
                     continue
@@ -77,7 +79,7 @@ final class DexCompanionDashboardService {
                             guard let self else { return }
                             guard let browserSession = await MainActor.run(body: { savedSession.makeBrowserSession() }) else {
                                 await MainActor.run {
-                                    DexCompanionSessionStore.remove(environmentId: savedSession.environmentId)
+                                    DexDesktopSessionStore.remove(environmentId: savedSession.environmentId)
                                 }
                                 return
                             }
@@ -91,14 +93,14 @@ final class DexCompanionDashboardService {
                                 try await client.streamNativeShellSnapshots { shellSnapshot in
                                     guard !Task.isCancelled else { return }
                                     await MainActor.run {
-                                        let nextSnapshot = DexCompanionDashboardIndex.makeSnapshot(
+                                        let nextSnapshot = DexDesktopDashboardIndex.makeSnapshot(
                                             savedSession: savedSession,
                                             browserSession: browserSession,
                                             shellSnapshot: shellSnapshot,
                                             limit: 200
                                         )
                                         self.environmentSnapshots[savedSession.environmentId] = nextSnapshot
-                                        self.snapshot = DexCompanionDashboardIndex.mergeSnapshots(
+                                        self.snapshot = DexDesktopDashboardIndex.mergeSnapshots(
                                             Array(self.environmentSnapshots.values),
                                             limit: 200
                                         )
@@ -129,3 +131,5 @@ final class DexCompanionDashboardService {
         startStreaming()
     }
 }
+
+typealias DexCompanionDashboardService = DexDesktopDashboardService

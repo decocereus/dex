@@ -5,8 +5,8 @@ import {
   AuthRevokeClientSessionInput,
   AuthRevokePairingLinkInput,
   type AuthWebSocketTokenResult,
-  CompanionPairingPayload,
-  CreateCompanionPairingPayloadInput,
+  DexDesktopPairingPayload,
+  CreateDexDesktopPairingPayloadInput,
 } from "@dex/contracts";
 import { DateTime, Effect, Option, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
@@ -61,7 +61,7 @@ function hasRequestBody(headers: typeof PairingCredentialRequestHeaders.Type) {
 }
 
 const AUTHORIZATION_PREFIX = "Bearer ";
-const DEFAULT_COMPANION_WEB_PATH = "/_chat/";
+const DEFAULT_DESKTOP_WEB_PATH = "/_chat/";
 
 function parseAuthenticatedRequestCredential(
   request: HttpServerRequest.HttpServerRequest,
@@ -81,13 +81,13 @@ function parseAuthenticatedRequestCredential(
   return null;
 }
 
-function normalizeCompanionWebPath(path: string | null | undefined) {
+function normalizeDexDesktopWebPath(path: string | null | undefined) {
   if (!path) {
-    return DEFAULT_COMPANION_WEB_PATH;
+    return DEFAULT_DESKTOP_WEB_PATH;
   }
   const trimmed = path.trim();
   if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
-    return DEFAULT_COMPANION_WEB_PATH;
+    return DEFAULT_DESKTOP_WEB_PATH;
   }
   return trimmed;
 }
@@ -205,14 +205,14 @@ export const authPairingCredentialRouteLayer = HttpRouter.add(
   }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error))),
 );
 
-const authCompanionPairingPayloadHandler = Effect.gen(function* () {
+const authDexDesktopPairingPayloadHandler = Effect.gen(function* () {
   const { serverAuth } = yield* authenticateOwnerSession;
   const serverEnvironment = yield* ServerEnvironment;
-  const payload = yield* HttpServerRequest.schemaBodyJson(CreateCompanionPairingPayloadInput).pipe(
+  const payload = yield* HttpServerRequest.schemaBodyJson(CreateDexDesktopPairingPayloadInput).pipe(
     Effect.mapError(
       (cause) =>
         new AuthError({
-          message: "Invalid companion pairing payload request.",
+          message: "Invalid Dex desktop pairing payload request.",
           status: 400,
           cause,
         }),
@@ -231,24 +231,24 @@ const authCompanionPairingPayloadHandler = Effect.gen(function* () {
       auth: authDescriptor,
       target: payload.target,
       pairing,
-    } satisfies CompanionPairingPayload,
+    } satisfies DexDesktopPairingPayload,
     { status: 200 },
   );
 }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error)));
 
-export const authCompanionPairingPayloadRouteLayer = HttpRouter.add(
+export const authDexDesktopPairingPayloadRouteLayer = HttpRouter.add(
   "POST",
   "/api/auth/companion/pairing",
-  authCompanionPairingPayloadHandler,
+  authDexDesktopPairingPayloadHandler,
 );
 
 export const authMobilePairingPayloadRouteLayer = HttpRouter.add(
   "POST",
   "/api/auth/mobile/pairing",
-  authCompanionPairingPayloadHandler,
+  authDexDesktopPairingPayloadHandler,
 );
 
-const authCompanionWebSessionHandler = Effect.gen(function* () {
+const authDexDesktopWebSessionHandler = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const serverAuth = yield* ServerAuth;
   const sessions = yield* SessionCredentialService;
@@ -261,7 +261,7 @@ const authCompanionWebSessionHandler = Effect.gen(function* () {
     });
   }
   const requestUrl = HttpServerRequest.toURL(request);
-  const nextPath = normalizeCompanionWebPath(
+  const nextPath = normalizeDexDesktopWebPath(
     Option.isSome(requestUrl) ? requestUrl.value.searchParams.get("path") : null,
   );
   return yield* HttpServerResponse.redirect(nextPath, { status: 302 }).pipe(
@@ -274,17 +274,20 @@ const authCompanionWebSessionHandler = Effect.gen(function* () {
   );
 }).pipe(Effect.catchTag("AuthError", (error) => respondToAuthError(error)));
 
-export const authCompanionWebSessionRouteLayer = HttpRouter.add(
+export const authDexDesktopWebSessionRouteLayer = HttpRouter.add(
   "GET",
   "/api/auth/companion/web-session",
-  authCompanionWebSessionHandler,
+  authDexDesktopWebSessionHandler,
 );
 
 export const authMobileWebSessionRouteLayer = HttpRouter.add(
   "GET",
   "/api/auth/mobile/web-session",
-  authCompanionWebSessionHandler,
+  authDexDesktopWebSessionHandler,
 );
+
+export const authCompanionPairingPayloadRouteLayer = authDexDesktopPairingPayloadRouteLayer;
+export const authCompanionWebSessionRouteLayer = authDexDesktopWebSessionRouteLayer;
 
 const authenticateOwnerSession = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;

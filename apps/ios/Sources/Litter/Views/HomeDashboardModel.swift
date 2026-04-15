@@ -13,7 +13,7 @@ final class HomeDashboardModel {
     private(set) var recentSessions: [HomeDashboardRecentSession] = []
 
     @ObservationIgnored private weak var appModel: AppModel?
-    @ObservationIgnored private let dexDashboardService = DexCompanionDashboardService.shared
+    @ObservationIgnored private let dexDashboardService = DexDesktopDashboardService.shared
     @ObservationIgnored private(set) var rebuildCount = 0
     @ObservationIgnored private var isActive = false
     @ObservationIgnored private var nativeObservationGeneration = 0

@@ -222,10 +222,10 @@ struct SettingsView: View {
                         Spacer()
                         Button(conn.isDexCompanion ? "Forget" : "Remove") {
                             if conn.isDexCompanion,
-                               let environmentId = DexCompanionRouting.environmentId(fromServerId: conn.id) {
-                                DexCompanionSessionStore.remove(environmentId: environmentId)
+                               let environmentId = DexDesktopRouting.environmentId(fromServerId: conn.id) {
+                                DexDesktopSessionStore.remove(environmentId: environmentId)
                                 appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
-                                DexCompanionDashboardService.shared.refresh()
+                                DexDesktopDashboardService.shared.refresh()
                             } else {
                                 SavedServerStore.remove(serverId: conn.id)
                                 if !appModel.isDexManagedServer(conn.id) {
@@ -519,12 +519,12 @@ private struct SettingsConnectionAccountSection: View {
     }
 
     private func forgetDexDesktop() {
-        guard let environmentId = DexCompanionRouting.environmentId(fromServerId: server.serverId) else {
+        guard let environmentId = DexDesktopRouting.environmentId(fromServerId: server.serverId) else {
             return
         }
-        DexCompanionSessionStore.remove(environmentId: environmentId)
+        DexDesktopSessionStore.remove(environmentId: environmentId)
         appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
-        DexCompanionDashboardService.shared.refresh()
+        DexDesktopDashboardService.shared.refresh()
     }
 }
 

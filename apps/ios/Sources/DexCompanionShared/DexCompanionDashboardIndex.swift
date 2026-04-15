@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 @MainActor
-enum DexCompanionDashboardIndex {
+enum DexDesktopDashboardIndex {
     struct Snapshot: Equatable {
         let connectedServers: [HomeDashboardServer]
         let recentSessions: [HomeDashboardRecentSession]
@@ -17,7 +17,7 @@ enum DexCompanionDashboardIndex {
 
     nonisolated static func makeSnapshot(
         savedSession: DexCompanionSavedSession,
-        browserSession: DexCompanionBrowserSession,
+        browserSession: DexDesktopBrowserSession,
         shellSnapshot: DexNativeShellSnapshot,
         limit: Int
     ) -> Snapshot {
@@ -32,7 +32,7 @@ enum DexCompanionDashboardIndex {
         }
 
         for project in shellSnapshot.projects {
-            let serverId = DexCompanionRouting.serverId(
+            let serverId = DexDesktopRouting.serverId(
                 for: savedSession.environmentId,
                 projectId: project.id
             )
@@ -59,7 +59,7 @@ enum DexCompanionDashboardIndex {
         let sessionRows = sortedThreads.prefix(limit).compactMap { thread -> HomeDashboardRecentSession? in
             let project = shellSnapshot.projects.first(where: { $0.id == thread.projectId })
             let updatedAt = parseDate(thread.updatedAt)
-            let serverId = DexCompanionRouting.serverId(
+            let serverId = DexDesktopRouting.serverId(
                 for: savedSession.environmentId,
                 projectId: thread.projectId
             )
@@ -126,13 +126,13 @@ enum DexCompanionDashboardIndex {
     }
 
     static func loadSnapshotsByEnvironment(limit: Int = 10) async -> [String: Snapshot] {
-        let savedSessions = DexCompanionSessionStore.load()
+        let savedSessions = DexDesktopSessionStore.load()
         return await withTaskGroup(of: (String, Snapshot)?.self) { group in
             for savedSession in savedSessions {
                 group.addTask {
                     guard let browserSession = savedSession.makeBrowserSession() else {
                         await MainActor.run {
-                            DexCompanionSessionStore.remove(environmentId: savedSession.environmentId)
+                            DexDesktopSessionStore.remove(environmentId: savedSession.environmentId)
                         }
                         return nil
                     }
@@ -208,3 +208,5 @@ enum DexCompanionDashboardIndex {
     }
 
 }
+
+typealias DexCompanionDashboardIndex = DexDesktopDashboardIndex

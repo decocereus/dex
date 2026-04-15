@@ -15,6 +15,7 @@ export {
 } from "./context";
 
 export {
+  createServerDesktopPairingPayload,
   createServerCompanionPairingPayload,
   createServerPairingCredential,
   fetchSessionState,

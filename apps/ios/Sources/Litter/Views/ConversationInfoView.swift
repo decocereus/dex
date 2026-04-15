@@ -19,7 +19,7 @@ struct ConversationInfoView: View {
 
     private var isDexManagedServer: Bool {
         guard let resolvedServerId else { return false }
-        return DexCompanionRouting.environmentId(fromServerId: resolvedServerId) != nil
+        return DexDesktopRouting.environmentId(fromServerId: resolvedServerId) != nil
     }
 
     private var resolvedServerId: String? {
@@ -680,7 +680,7 @@ struct ConversationInfoView: View {
 
     private func forkConversation() async {
         guard let threadKey else { return }
-        if DexCompanionRouting.environmentId(fromServerId: threadKey.serverId) != nil {
+        if DexDesktopRouting.environmentId(fromServerId: threadKey.serverId) != nil {
             LLog.info("info", "fork is not available for paired dex threads yet")
             return
         }

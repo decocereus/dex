@@ -1,12 +1,12 @@
 import Foundation
 
-struct DexCompanionResolvedConnection {
-    let session: DexCompanionBrowserSession
+struct DexDesktopResolvedConnection {
+    let session: DexDesktopBrowserSession
     let client: DexCompanionClient
 }
 
-final class DexCompanionRuntimeService {
-    static let shared = DexCompanionRuntimeService()
+final class DexDesktopRuntimeService {
+    static let shared = DexDesktopRuntimeService()
 
     private var threadStreamTask: Task<Void, Never>?
     private var threadStreamKey: ThreadKey?
@@ -15,11 +15,11 @@ final class DexCompanionRuntimeService {
         threadStreamTask?.cancel()
     }
 
-    func resolveConnection(forServerId serverId: String) -> DexCompanionResolvedConnection? {
-        guard let session = DexCompanionRouting.browserSession(forServerId: serverId) else {
+    func resolveConnection(forServerId serverId: String) -> DexDesktopResolvedConnection? {
+        guard let session = DexDesktopRouting.browserSession(forServerId: serverId) else {
             return nil
         }
-        return DexCompanionResolvedConnection(
+        return DexDesktopResolvedConnection(
             session: session,
             client: DexCompanionClient(
                 httpBaseUrl: session.httpBaseUrl,
@@ -30,7 +30,7 @@ final class DexCompanionRuntimeService {
 
     func fetchThreadSnapshot(
         key: ThreadKey
-    ) async throws -> (connection: DexCompanionResolvedConnection, snapshot: DexNativeThreadSnapshot) {
+    ) async throws -> (connection: DexDesktopResolvedConnection, snapshot: DexNativeThreadSnapshot) {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
             throw DexCompanionClientError.invalidBaseUrl
         }
@@ -53,7 +53,7 @@ final class DexCompanionRuntimeService {
         runtimeMode: String,
         interactionMode: String,
         worktreePath: String?
-    ) async throws -> (connection: DexCompanionResolvedConnection, snapshot: DexNativeThreadSnapshot) {
+    ) async throws -> (connection: DexDesktopResolvedConnection, snapshot: DexNativeThreadSnapshot) {
         guard let connection = resolveConnection(forServerId: serverId) else {
             throw DexCompanionClientError.invalidBaseUrl
         }
@@ -75,7 +75,7 @@ final class DexCompanionRuntimeService {
         modelSelection: [String: Any]? = nil,
         runtimeMode: String? = nil,
         interactionMode: String? = nil
-    ) async throws -> (connection: DexCompanionResolvedConnection, snapshot: DexNativeThreadSnapshot) {
+    ) async throws -> (connection: DexDesktopResolvedConnection, snapshot: DexNativeThreadSnapshot) {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
             throw DexCompanionClientError.invalidBaseUrl
         }
@@ -191,11 +191,11 @@ final class DexCompanionRuntimeService {
 
     func startThreadStream(
         key: ThreadKey,
-        onSnapshot: @escaping @Sendable @MainActor (DexCompanionResolvedConnection, DexNativeThreadSnapshot) -> Void,
+        onSnapshot: @escaping @Sendable @MainActor (DexDesktopResolvedConnection, DexNativeThreadSnapshot) -> Void,
         onNonFatalError: @escaping @Sendable @MainActor (Error) -> Void,
         onReconnectableError: @escaping @Sendable @MainActor (NSError) -> Void
     ) -> Bool {
-        guard DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil else {
+        guard DexDesktopRouting.environmentId(fromServerId: key.serverId) != nil else {
             _ = stopThreadStream()
             return false
         }
@@ -245,3 +245,6 @@ final class DexCompanionRuntimeService {
         return true
     }
 }
+
+typealias DexCompanionResolvedConnection = DexDesktopResolvedConnection
+typealias DexCompanionRuntimeService = DexDesktopRuntimeService

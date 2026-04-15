@@ -4,37 +4,37 @@ import { ServerAuthDescriptor } from "./auth";
 import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
 import { ExecutionEnvironmentDescriptor } from "./environment";
 
-export const CompanionPairingTarget = Schema.Struct({
+export const DexDesktopPairingTarget = Schema.Struct({
   httpBaseUrl: TrimmedNonEmptyString,
   wsBaseUrl: TrimmedNonEmptyString,
 });
-export type CompanionPairingTarget = typeof CompanionPairingTarget.Type;
+export type DexDesktopPairingTarget = typeof DexDesktopPairingTarget.Type;
 
-export const CompanionPairingCredential = Schema.Struct({
+export const DexDesktopPairingCredential = Schema.Struct({
   id: TrimmedNonEmptyString,
   credential: TrimmedNonEmptyString,
   label: Schema.optionalKey(TrimmedNonEmptyString),
   expiresAt: Schema.DateTimeUtc,
 });
-export type CompanionPairingCredential = typeof CompanionPairingCredential.Type;
+export type DexDesktopPairingCredential = typeof DexDesktopPairingCredential.Type;
 
-export const CompanionPairingPayload = Schema.Struct({
+export const DexDesktopPairingPayload = Schema.Struct({
   version: Schema.Literal(1),
   issuedAt: Schema.DateTimeUtc,
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
-  target: CompanionPairingTarget,
-  pairing: CompanionPairingCredential,
+  target: DexDesktopPairingTarget,
+  pairing: DexDesktopPairingCredential,
 });
-export type CompanionPairingPayload = typeof CompanionPairingPayload.Type;
+export type DexDesktopPairingPayload = typeof DexDesktopPairingPayload.Type;
 
-export const CreateCompanionPairingPayloadInput = Schema.Struct({
-  target: CompanionPairingTarget,
+export const CreateDexDesktopPairingPayloadInput = Schema.Struct({
+  target: DexDesktopPairingTarget,
   label: Schema.optionalKey(TrimmedNonEmptyString),
 });
-export type CreateCompanionPairingPayloadInput = typeof CreateCompanionPairingPayloadInput.Type;
+export type CreateDexDesktopPairingPayloadInput = typeof CreateDexDesktopPairingPayloadInput.Type;
 
-export interface CompanionPairingLinkRecord {
+export interface DexDesktopPairingLinkRecord {
   readonly id: string;
   readonly label?: string;
   readonly issuedAt: IsoDateTime;
@@ -42,3 +42,17 @@ export interface CompanionPairingLinkRecord {
   readonly httpBaseUrl: string;
   readonly wsBaseUrl: string;
 }
+
+export const CompanionPairingTarget = DexDesktopPairingTarget;
+export type CompanionPairingTarget = DexDesktopPairingTarget;
+
+export const CompanionPairingCredential = DexDesktopPairingCredential;
+export type CompanionPairingCredential = DexDesktopPairingCredential;
+
+export const CompanionPairingPayload = DexDesktopPairingPayload;
+export type CompanionPairingPayload = DexDesktopPairingPayload;
+
+export const CreateCompanionPairingPayloadInput = CreateDexDesktopPairingPayloadInput;
+export type CreateCompanionPairingPayloadInput = CreateDexDesktopPairingPayloadInput;
+
+export type CompanionPairingLinkRecord = DexDesktopPairingLinkRecord;

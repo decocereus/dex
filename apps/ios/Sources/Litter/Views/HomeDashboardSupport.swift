@@ -13,7 +13,7 @@ struct HomeDashboardRecentSession: Identifiable, Hashable {
     var id: ThreadKey { key }
 
     var isDexCompanion: Bool {
-        DexCompanionRouting.environmentId(fromServerId: serverId) != nil
+        DexDesktopRouting.environmentId(fromServerId: serverId) != nil
     }
 }
 
@@ -62,7 +62,7 @@ struct HomeDashboardServer: Identifiable, Equatable {
     }
 
     var isDexCompanion: Bool {
-        DexCompanionRouting.environmentId(fromServerId: id) != nil
+        DexDesktopRouting.environmentId(fromServerId: id) != nil
     }
 }
 
