@@ -332,7 +332,7 @@ struct ContentView: View {
             let forceDiscoveryForUITest =
                 ProcessInfo.processInfo.environment["CODEXIOS_UI_TEST_FORCE_DISCOVERY"] == "1"
             if forceDiscoveryForUITest {
-                appState.showServerPicker = true
+                appState.showConnectionPicker = true
             }
         }
         .onChange(of: appModel.snapshot?.activeThread) { _, _ in
@@ -343,10 +343,10 @@ struct ContentView: View {
         .onChange(of: appModel.snapshot) { _, nextSnapshot in
             appRuntime.handleSnapshot(nextSnapshot)
         }
-        .sheet(isPresented: $bindableAppState.showServerPicker) {
+        .sheet(isPresented: $bindableAppState.showConnectionPicker) {
             NavigationStack {
                 DiscoveryView(onServerSelected: { selection in
-                    appState.showServerPicker = false
+                    appState.showConnectionPicker = false
                     appState.pendingDiscoverySelection = selection
                 })
             }
@@ -506,7 +506,7 @@ private struct HomeNavigationView: View {
                         onOpenRecentSession: openRecentSession,
                         onOpenServerSessions: openServerSessions,
                         onNewSession: handleNewSessionTap,
-                        onConnectServer: { appState.showServerPicker = true },
+                        onOpenConnectionPicker: { appState.showConnectionPicker = true },
                         onShowSettings: { appState.showSettings = true },
                         onDeleteThread: { key in
                             try? await appModel.archiveThread(key: key)
@@ -766,7 +766,7 @@ private struct HomeNavigationView: View {
             }
             directoryPickerSheet = SessionLaunchSupport.DirectoryPickerSheetModel(selectedServerId: defaultServerId)
         } else {
-            appState.showServerPicker = true
+            appState.showConnectionPicker = true
         }
     }
 

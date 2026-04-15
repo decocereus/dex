@@ -23,7 +23,7 @@ final class AppState {
     private static let customPermissionValue = "custom"
 
     var currentCwd = ""
-    var showServerPicker = false
+    var showConnectionPicker = false
     var collapsedSessionFolders: Set<String> = []
     var sessionsSelectedServerFilterId: String?
     var sessionsShowOnlyForks = false

@@ -8,7 +8,7 @@ struct HomeDashboardView: View {
     let onOpenRecentSession: @MainActor (HomeDashboardRecentSession) async -> Void
     let onOpenServerSessions: (HomeDashboardServer) -> Void
     let onNewSession: () -> Void
-    let onConnectServer: () -> Void
+    let onOpenConnectionPicker: () -> Void
     let onShowSettings: () -> Void
     var onDeleteThread: ((ThreadKey) async -> Void)? = nil
     var onReconnectLegacyServer: ((HomeDashboardServer) -> Void)? = nil
@@ -193,7 +193,7 @@ struct HomeDashboardView: View {
                 title: "Projects",
                 buttonTitle: connectMacButtonTitle,
                 systemImage: "desktopcomputer",
-                action: onConnectServer
+                action: onOpenConnectionPicker
             )
 
             if connectedServers.isEmpty {

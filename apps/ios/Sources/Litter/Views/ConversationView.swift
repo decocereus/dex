@@ -1809,7 +1809,7 @@ private struct ConversationInputBar: View {
                 Task { await renameThread(initialName) }
             }
         case .new:
-            appState.showServerPicker = true
+            appState.showConnectionPicker = true
         case .fork:
             Task { await forkConversation() }
         case .resume:

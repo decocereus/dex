@@ -142,7 +142,7 @@ struct SessionsScreen: View {
                 }
                 guard let fallbackServerId = defaultNewSessionServerId(preferredServerId: pickerSheet.selectedServerId) else {
                     directoryPickerSheet = nil
-                    appState.showServerPicker = true
+                    appState.showConnectionPicker = true
                     return
                 }
                 if pickerSheet.selectedServerId != fallbackServerId {
@@ -382,7 +382,7 @@ struct SessionsScreen: View {
                 if let firstServerId = connectedServerIds.first {
                     directoryPickerSheet = SessionLaunchSupport.DirectoryPickerSheetModel(selectedServerId: firstServerId)
                 } else {
-                    appState.showServerPicker = true
+                    appState.showConnectionPicker = true
                 }
                 return
             }
@@ -404,7 +404,7 @@ struct SessionsScreen: View {
                     directoryPickerSheet = SessionLaunchSupport.DirectoryPickerSheetModel(selectedServerId: defaultServerId)
                 }
             } else {
-                appState.showServerPicker = true
+                appState.showConnectionPicker = true
             }
         } label: {
             HStack {
@@ -463,7 +463,7 @@ struct SessionsScreen: View {
                     .foregroundColor(LitterTheme.textMuted)
                 Spacer()
                 Button(allConnectionsAreDexManaged ? "Pair" : "Connect") {
-                    appState.showServerPicker = true
+                    appState.showConnectionPicker = true
                 }
                 .accessibilityIdentifier("sessions.connectButton")
                 .litterFont(.caption)
@@ -477,7 +477,7 @@ struct SessionsScreen: View {
                     .foregroundColor(LitterTheme.textPrimary)
                 Spacer()
                 Button(allConnectionsAreDexManaged ? "Pair" : "Add") {
-                    appState.showServerPicker = true
+                    appState.showConnectionPicker = true
                 }
                 .accessibilityIdentifier("sessions.addServerButton")
                 .litterFont(.caption)
