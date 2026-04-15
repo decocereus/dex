@@ -1,5 +1,9 @@
 import Foundation
 
+extension Notification.Name {
+    static let dexDesktopSessionsDidChange = Notification.Name("dex.desktop.sessionsDidChange")
+}
+
 struct DexCompanionSavedSession: Codable, Equatable, Identifiable {
     let environmentId: String
     let serverLabel: String
@@ -52,6 +56,7 @@ enum DexCompanionSessionStore {
         let defaults = UserDefaults.standard
         defaults.set(data, forKey: storageKey)
         defaults.removeObject(forKey: legacyStorageKey)
+        NotificationCenter.default.post(name: .dexDesktopSessionsDidChange, object: nil)
     }
 
     static func upsert(_ session: DexCompanionSavedSession) {

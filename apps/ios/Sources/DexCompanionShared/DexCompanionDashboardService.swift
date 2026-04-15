@@ -11,9 +11,24 @@ final class DexCompanionDashboardService {
     @ObservationIgnored private var consumerCount = 0
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var environmentSnapshots: [String: DexCompanionDashboardIndex.Snapshot] = [:]
+    @ObservationIgnored private var sessionsObserver: NSObjectProtocol?
+
+    init() {
+        sessionsObserver = NotificationCenter.default.addObserver(
+            forName: .dexDesktopSessionsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.consumerCount > 0 else { return }
+            self.restartStreaming()
+        }
+    }
 
     deinit {
         streamTask?.cancel()
+        if let sessionsObserver {
+            NotificationCenter.default.removeObserver(sessionsObserver)
+        }
     }
 
     func activateConsumer() {
@@ -105,5 +120,12 @@ final class DexCompanionDashboardService {
                 self?.streamTask = nil
             }
         }
+    }
+
+    private func restartStreaming() {
+        streamTask?.cancel()
+        streamTask = nil
+        refresh()
+        startStreaming()
     }
 }
