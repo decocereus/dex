@@ -135,7 +135,7 @@ struct DiscoveryView: View {
             "label": savedSession.serverLabel,
             "httpBaseUrl": session.httpBaseUrl,
         ])
-        let client = DexCompanionClient(
+        let client = DexMobileClient(
             httpBaseUrl: session.httpBaseUrl,
             bearerToken: session.bearerToken
         )

@@ -1,12 +1,12 @@
 import Foundation
 
-struct DexCompanionShellProject: Codable, Equatable {
+struct DexMobileShellProject: Codable, Equatable {
     let id: String
     let title: String
     let workspaceRoot: String
 }
 
-struct DexCompanionLatestTurn: Codable, Equatable {
+struct DexMobileLatestTurn: Codable, Equatable {
     let turnId: String
     let state: String
     let requestedAt: String
@@ -15,13 +15,13 @@ struct DexCompanionLatestTurn: Codable, Equatable {
     let assistantMessageId: String?
 }
 
-struct DexCompanionThreadShell: Codable, Equatable {
+struct DexMobileThreadShell: Codable, Equatable {
     let id: String
     let projectId: String
     let title: String
     let branch: String?
     let worktreePath: String?
-    let latestTurn: DexCompanionLatestTurn?
+    let latestTurn: DexMobileLatestTurn?
     let createdAt: String
     let updatedAt: String
     let archivedAt: String?
@@ -31,10 +31,10 @@ struct DexCompanionThreadShell: Codable, Equatable {
     let hasActionableProposedPlan: Bool
 }
 
-struct DexCompanionShellSnapshot: Codable, Equatable {
+struct DexMobileShellSnapshot: Codable, Equatable {
     let snapshotSequence: UInt64
-    let projects: [DexCompanionShellProject]
-    let threads: [DexCompanionThreadShell]
+    let projects: [DexMobileShellProject]
+    let threads: [DexMobileThreadShell]
     let updatedAt: String
 }
 
@@ -200,7 +200,7 @@ struct DexNativeOrchestrationThread: Codable, Equatable {
     let interactionMode: String?
     let branch: String?
     let worktreePath: String?
-    let latestTurn: DexCompanionLatestTurn?
+    let latestTurn: DexMobileLatestTurn?
     let messages: [DexNativeOrchestrationMessage]
 }
 
@@ -213,7 +213,7 @@ struct DexNativeThreadSnapshot: Codable, Equatable {
     let updatedAt: String
 }
 
-struct DexCompanionThreadDetail: Codable, Equatable {
+struct DexMobileThreadDetail: Codable, Equatable {
     let id: String
     let projectId: String
     let title: String
@@ -224,11 +224,11 @@ struct DexCompanionThreadDetail: Codable, Equatable {
     let archivedAt: String?
 }
 
-struct DexCompanionDispatchResponse: Codable, Equatable {
+struct DexMobileDispatchResponse: Codable, Equatable {
     let sequence: UInt64
 }
 
-enum DexCompanionClientError: LocalizedError {
+enum DexMobileClientError: LocalizedError {
     case invalidBaseUrl
     case invalidResponse
     case requestFailed(String)
@@ -245,15 +245,15 @@ enum DexCompanionClientError: LocalizedError {
     }
 }
 
-struct DexCompanionClient {
+struct DexMobileClient {
     let httpBaseUrl: String
     let bearerToken: String
 
-    func fetchShellSnapshot() async throws -> DexCompanionShellSnapshot {
+    func fetchShellSnapshot() async throws -> DexMobileShellSnapshot {
         try await request(path: "api/mobile/shell", method: "GET")
     }
 
-    func fetchThreadDetail(threadId: String) async throws -> DexCompanionThreadDetail {
+    func fetchThreadDetail(threadId: String) async throws -> DexMobileThreadDetail {
         try await request(path: "api/mobile/thread", queryItems: [URLQueryItem(name: "threadId", value: threadId)], method: "GET")
     }
 
@@ -265,7 +265,7 @@ struct DexCompanionClient {
         onSnapshot: @escaping @Sendable (DexNativeShellSnapshot) async -> Void
     ) async throws {
         guard let baseUrl = URL(string: httpBaseUrl) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         let url = baseUrl.appending(path: "api/mobile/native/shell/stream")
 
@@ -276,10 +276,10 @@ struct DexCompanionClient {
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw DexCompanionClientError.invalidResponse
+            throw DexMobileClientError.invalidResponse
         }
         guard (200...299).contains(http.statusCode) else {
-            throw DexCompanionClientError.requestFailed("Dex shell stream failed.")
+            throw DexMobileClientError.requestFailed("Dex shell stream failed.")
         }
 
         let decoder = JSONDecoder()
@@ -366,7 +366,7 @@ struct DexCompanionClient {
         )
     }
 
-    func archiveNativeThread(threadId: String) async throws -> DexCompanionDispatchResponse {
+    func archiveNativeThread(threadId: String) async throws -> DexMobileDispatchResponse {
         try await request(
             path: "api/mobile/native/thread/archive",
             method: "POST",
@@ -435,7 +435,7 @@ struct DexCompanionClient {
         onSnapshot: @escaping @Sendable (DexNativeThreadSnapshot) async -> Void
     ) async throws {
         guard let baseUrl = URL(string: httpBaseUrl) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         var components = URLComponents(
             url: baseUrl.appending(path: "api/mobile/native/thread/stream"),
@@ -443,7 +443,7 @@ struct DexCompanionClient {
         )
         components?.queryItems = [URLQueryItem(name: "threadId", value: threadId)]
         guard let url = components?.url else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
 
         var request = URLRequest(url: url)
@@ -453,10 +453,10 @@ struct DexCompanionClient {
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw DexCompanionClientError.invalidResponse
+            throw DexMobileClientError.invalidResponse
         }
         guard (200...299).contains(http.statusCode) else {
-            throw DexCompanionClientError.requestFailed("Dex thread stream failed.")
+            throw DexMobileClientError.requestFailed("Dex thread stream failed.")
         }
 
         let decoder = JSONDecoder()
@@ -471,7 +471,7 @@ struct DexCompanionClient {
         }
     }
 
-    func dispatchCommand(_ payload: [String: Any]) async throws -> DexCompanionDispatchResponse {
+    func dispatchCommand(_ payload: [String: Any]) async throws -> DexMobileDispatchResponse {
         let bodyData = try JSONSerialization.data(withJSONObject: payload)
         return try await request(
             path: "api/mobile/dispatch",
@@ -487,14 +487,14 @@ struct DexCompanionClient {
         bodyData: Data? = nil
     ) async throws -> Response {
         guard let baseUrl = URL(string: httpBaseUrl) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         var components = URLComponents(url: baseUrl.appending(path: path), resolvingAgainstBaseURL: false)
         if !queryItems.isEmpty {
             components?.queryItems = queryItems
         }
         guard let url = components?.url else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
 
         var request = URLRequest(url: url)
@@ -507,14 +507,14 @@ struct DexCompanionClient {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw DexCompanionClientError.invalidResponse
+            throw DexMobileClientError.invalidResponse
         }
         guard (200...299).contains(http.statusCode) else {
             let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
-            throw DexCompanionClientError.requestFailed(message ?? "Dex request failed.")
+            throw DexMobileClientError.requestFailed(message ?? "Dex request failed.")
         }
         guard let decoded = try? JSONDecoder().decode(Response.self, from: data) else {
-            throw DexCompanionClientError.invalidResponse
+            throw DexMobileClientError.invalidResponse
         }
         return decoded
     }
@@ -532,3 +532,12 @@ struct DexCompanionClient {
         }
     }
 }
+
+typealias DexCompanionShellProject = DexMobileShellProject
+typealias DexCompanionLatestTurn = DexMobileLatestTurn
+typealias DexCompanionThreadShell = DexMobileThreadShell
+typealias DexCompanionShellSnapshot = DexMobileShellSnapshot
+typealias DexCompanionThreadDetail = DexMobileThreadDetail
+typealias DexCompanionDispatchResponse = DexMobileDispatchResponse
+typealias DexCompanionClientError = DexMobileClientError
+typealias DexCompanionClient = DexMobileClient

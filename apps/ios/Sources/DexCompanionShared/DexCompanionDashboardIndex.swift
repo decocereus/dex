@@ -137,7 +137,7 @@ enum DexDesktopDashboardIndex {
                         return nil
                     }
 
-                    let client = DexCompanionClient(
+                    let client = DexMobileClient(
                         httpBaseUrl: browserSession.httpBaseUrl,
                         bearerToken: browserSession.bearerToken
                     )

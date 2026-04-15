@@ -2,7 +2,7 @@ import Foundation
 
 struct DexDesktopResolvedConnection {
     let session: DexDesktopBrowserSession
-    let client: DexCompanionClient
+    let client: DexMobileClient
 }
 
 final class DexDesktopRuntimeService {
@@ -21,7 +21,7 @@ final class DexDesktopRuntimeService {
         }
         return DexDesktopResolvedConnection(
             session: session,
-            client: DexCompanionClient(
+            client: DexMobileClient(
                 httpBaseUrl: session.httpBaseUrl,
                 bearerToken: session.bearerToken
             )
@@ -32,7 +32,7 @@ final class DexDesktopRuntimeService {
         key: ThreadKey
     ) async throws -> (connection: DexDesktopResolvedConnection, snapshot: DexNativeThreadSnapshot) {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         let snapshot = try await connection.client.fetchNativeThreadSnapshot(threadId: key.threadId)
         return (connection, snapshot)
@@ -40,7 +40,7 @@ final class DexDesktopRuntimeService {
 
     func fetchAuthSessionState(serverId: String) async throws -> DexAuthSessionState {
         guard let connection = resolveConnection(forServerId: serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         return try await connection.client.fetchAuthSessionState()
     }
@@ -55,7 +55,7 @@ final class DexDesktopRuntimeService {
         worktreePath: String?
     ) async throws -> (connection: DexDesktopResolvedConnection, snapshot: DexNativeThreadSnapshot) {
         guard let connection = resolveConnection(forServerId: serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         let snapshot = try await connection.client.createNativeThread(
             projectId: projectId,
@@ -77,7 +77,7 @@ final class DexDesktopRuntimeService {
         interactionMode: String? = nil
     ) async throws -> (connection: DexDesktopResolvedConnection, snapshot: DexNativeThreadSnapshot) {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         let snapshot = try await connection.client.configureNativeThread(
             threadId: key.threadId,
@@ -91,7 +91,7 @@ final class DexDesktopRuntimeService {
 
     func interruptTurn(key: ThreadKey, turnId: String) async throws {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         _ = try await connection.client.dispatchCommand([
             "type": "thread.turn.interrupt",
@@ -108,7 +108,7 @@ final class DexDesktopRuntimeService {
         decision: String
     ) async throws {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         _ = try await connection.client.dispatchCommand([
             "type": "thread.approval.respond",
@@ -126,7 +126,7 @@ final class DexDesktopRuntimeService {
         answers: [String: [String]]
     ) async throws {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         _ = try await connection.client.dispatchCommand([
             "type": "thread.user-input.respond",
@@ -140,7 +140,7 @@ final class DexDesktopRuntimeService {
 
     func archiveThread(key: ThreadKey) async throws {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         _ = try await connection.client.archiveNativeThread(threadId: key.threadId)
     }
@@ -154,7 +154,7 @@ final class DexDesktopRuntimeService {
         interactionMode: String
     ) async throws {
         guard let connection = resolveConnection(forServerId: key.serverId) else {
-            throw DexCompanionClientError.invalidBaseUrl
+            throw DexMobileClientError.invalidBaseUrl
         }
         var command: [String: Any] = [
             "type": "thread.turn.start",

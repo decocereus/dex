@@ -84,7 +84,7 @@ final class DexDesktopDashboardService {
                                 return
                             }
 
-                            let client = DexCompanionClient(
+                            let client = DexMobileClient(
                                 httpBaseUrl: browserSession.httpBaseUrl,
                                 bearerToken: browserSession.bearerToken
                             )

@@ -1464,7 +1464,7 @@ final class AppModel {
         )
     }
 
-    private func dexClient(for serverId: String) -> DexCompanionClient? {
+    private func dexClient(for serverId: String) -> DexMobileClient? {
         dexRuntime.resolveConnection(forServerId: serverId)?.client
     }
 
