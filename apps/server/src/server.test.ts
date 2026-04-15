@@ -1139,6 +1139,88 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("streams native companion shell snapshots when shell state changes", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const updatedAt = new Date(Date.now() + 1_000).toISOString();
+      const baseReadModel = makeDefaultOrchestrationReadModel();
+      let snapshotCallCount = 0;
+      const initialReadModel: OrchestrationReadModel = {
+        ...baseReadModel,
+        snapshotSequence: 1,
+        updatedAt: now,
+      };
+      const updatedReadModel: OrchestrationReadModel = {
+        ...baseReadModel,
+        snapshotSequence: 2,
+        updatedAt,
+        projects: [
+          {
+            ...baseReadModel.projects[0]!,
+            title: "Renamed Project",
+            updatedAt,
+          },
+        ],
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            streamDomainEvents: Stream.make({
+              sequence: 2,
+              eventId: EventId.make("event-project-meta-updated"),
+              aggregateKind: "project",
+              aggregateId: defaultProjectId,
+              occurredAt: updatedAt,
+              commandId: null,
+              causationEventId: null,
+              correlationId: null,
+              metadata: {},
+              type: "project.meta-updated",
+              payload: {
+                projectId: defaultProjectId,
+                title: "Renamed Project",
+                updatedAt,
+              },
+            }),
+          },
+          projectionSnapshotQuery: {
+            getSnapshot: () =>
+              Effect.succeed(snapshotCallCount++ === 0 ? initialReadModel : updatedReadModel),
+          },
+        },
+      });
+
+      const bearerToken = yield* getAuthenticatedBearerSessionToken();
+      const shellUrl = yield* getHttpServerUrl("/api/companion/native/shell/stream");
+      const response = yield* Effect.promise(() =>
+        fetch(shellUrl, {
+          headers: {
+            authorization: `Bearer ${bearerToken}`,
+          },
+        }),
+      );
+      const body = yield* Effect.promise(() => response.text());
+      const lines = body
+        .trim()
+        .split("\n")
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              readonly projects: ReadonlyArray<{ readonly title: string }>;
+              readonly updatedAt: string;
+            },
+        );
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("content-type"), "application/x-ndjson; charset=utf-8");
+      assert.equal(lines.length, 2);
+      assert.equal(lines[0]?.projects[0]?.title, "Default Project");
+      assert.equal(lines[1]?.projects[0]?.title, "Renamed Project");
+      assert.equal(lines[1]?.updatedAt, updatedAt);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("serves native companion thread snapshots with pending approvals and user input", () =>
     Effect.gen(function* () {
       const now = new Date().toISOString();
