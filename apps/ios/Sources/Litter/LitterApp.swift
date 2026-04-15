@@ -534,6 +534,8 @@ private struct HomeNavigationView: View {
                         onForgetDexDesktop: { serverId in
                             if let environmentId = DexCompanionRouting.environmentId(fromServerId: serverId) {
                                 DexCompanionSessionStore.remove(environmentId: environmentId)
+                                appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
+                                DexCompanionDashboardService.shared.refresh()
                             }
                         },
                         onOpenRecording: { url in

@@ -1543,6 +1543,40 @@ final class AppModel {
         }
     }
 
+    func clearDexEnvironmentStateLocally(environmentId: String) {
+        let matchingServerIds = Set(
+            dexServerSnapshots.keys.filter {
+                DexCompanionRouting.environmentId(fromServerId: $0) == environmentId
+            }
+        )
+        let matchingThreadKeys = Set(
+            dexThreadSnapshots.keys.filter {
+                DexCompanionRouting.environmentId(fromServerId: $0.serverId) == environmentId
+            }
+        )
+
+        for serverId in matchingServerIds {
+            dexServerSnapshots.removeValue(forKey: serverId)
+            dexAuthSessionStateByServerId.removeValue(forKey: serverId)
+        }
+
+        for key in matchingThreadKeys {
+            dexPendingApprovalsByThread.removeValue(forKey: key)
+            dexPendingUserInputsByThread.removeValue(forKey: key)
+            dexThreadSnapshots.removeValue(forKey: key)
+            dexRuntime.stopThreadStreamIfMatching(key)
+        }
+
+        if var snapshot,
+           let activeThread = snapshot.activeThread,
+           DexCompanionRouting.environmentId(fromServerId: activeThread.serverId) == environmentId {
+            snapshot.activeThread = nil
+            self.snapshot = snapshot
+        } else {
+            snapshotRevision &+= 1
+        }
+    }
+
     private func startDexThreadStreamIfNeeded(for key: ThreadKey?) {
         guard let key, DexCompanionRouting.environmentId(fromServerId: key.serverId) != nil else {
             if let previousKey = dexRuntime.stopThreadStream() {
