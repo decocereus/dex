@@ -468,6 +468,7 @@ private struct HomeNavigationView: View {
 
     private enum HomeNavigationRoute: Hashable {
         case sessions(serverId: String, title: String)
+        case workspaceSessions(title: String)
         case conversation(ThreadKey)
         case realtimeVoice(ThreadKey)
         case conversationInfo(ThreadKey)
@@ -494,54 +495,44 @@ private struct HomeNavigationView: View {
         navigationPath.isEmpty
     }
 
+    @ViewBuilder
+    private var homeDashboard: some View {
+        HomeDashboardView(
+            workspaces: homeDashboardModel.workspaces,
+            recentSessions: homeDashboardModel.recentSessions,
+            connectedServers: homeDashboardModel.connectedServers,
+            dexDesktopConnectionNotice: homeDashboardModel.dexDesktopConnectionNotice,
+            openingRecentSessionKey: openingRecentSessionKey,
+            isStartingNewSession: isStartingNewSession,
+            onOpenRecentSession: openRecentSession,
+            onOpenServerSessions: openServerSessions,
+            onOpenWorkspaceSessions: openWorkspaceSessions,
+            onNewSession: handleNewSessionTap,
+            onOpenConnectionPicker: { appState.showConnectionPicker = true },
+            onShowSettings: { appState.showSettings = true },
+            onDeleteThread: { key in
+                try? await appModel.archiveThread(key: key)
+                await appModel.refreshSnapshot()
+            },
+            onReconnectLegacyServer: { server in
+                Task {
+                    await AppRuntimeController.shared.reconnectServer(serverId: server.id)
+                }
+            },
+            onDisconnectLegacyServer: disconnectLegacyServer,
+            onRenameLegacyServer: renameLegacyServer,
+            onForgetDexDesktop: forgetDexDesktop,
+            onOpenRecording: { url in
+                navigationPath.append(.replayRecording(url))
+            }
+        )
+    }
+
     var body: some View {
         NavigationStack(path: $navigationPath) {
             Group {
                 if isHomeRouteActive {
-                    HomeDashboardView(
-                        recentSessions: homeDashboardModel.recentSessions,
-                        connectedServers: homeDashboardModel.connectedServers,
-                        openingRecentSessionKey: openingRecentSessionKey,
-                        isStartingNewSession: isStartingNewSession,
-                        onOpenRecentSession: openRecentSession,
-                        onOpenServerSessions: openServerSessions,
-                        onNewSession: handleNewSessionTap,
-                        onOpenConnectionPicker: { appState.showConnectionPicker = true },
-                        onShowSettings: { appState.showSettings = true },
-                        onDeleteThread: { key in
-                            try? await appModel.archiveThread(key: key)
-                            await appModel.refreshSnapshot()
-                        },
-                        onReconnectLegacyServer: { server in
-                            Task {
-                                await AppRuntimeController.shared.reconnectServer(serverId: server.id)
-                            }
-                        },
-                        onDisconnectLegacyServer: { serverId in
-                            SavedServerStore.remove(serverId: serverId)
-                            Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
-                            appModel.serverBridge.disconnectServer(serverId: serverId)
-                        },
-                        onRenameLegacyServer: { serverId, newName in
-                            SavedServerStore.rename(serverId: serverId, newName: newName)
-                            appModel.reconnectController.syncSavedServers(
-                                servers: SavedServerStore.reconnectRecords(
-                                    localDisplayName: appModel.resolvedLocalServerDisplayName()
-                                )
-                            )
-                            appModel.store.renameServer(serverId: serverId, displayName: newName)
-                        },
-                        onForgetDexDesktop: { serverId in
-                            if let environmentId = DexDesktopRouting.environmentId(fromServerId: serverId) {
-                                DexDesktopSessionStore.remove(environmentId: environmentId)
-                                appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
-                                DexDesktopDashboardService.shared.refresh()
-                            }
-                        },
-                        onOpenRecording: { url in
-                            navigationPath.append(.replayRecording(url))
-                        }
-                    )
+                    homeDashboard
                 } else {
                     LitterTheme.backgroundGradient.ignoresSafeArea()
                 }
@@ -553,6 +544,22 @@ private struct HomeNavigationView: View {
             }
             .navigationDestination(for: HomeNavigationRoute.self) { route in
                 switch route {
+                case let .workspaceSessions(title):
+                    SessionsScreen(
+                        pinnedServerId: nil,
+                        onOpenConversation: { key in
+                            openConversation(key)
+                        },
+                        onInfo: nil
+                    )
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(LitterTheme.backgroundGradient.ignoresSafeArea())
+                    .onAppear {
+                        appState.sessionsSelectedServerFilterId = nil
+                        appState.sessionsShowOnlyForks = false
+                    }
                 case let .sessions(serverId, title):
                     SessionsScreen(
                         pinnedServerId: serverId,
@@ -847,6 +854,51 @@ private struct HomeNavigationView: View {
         appState.sessionsShowOnlyForks = false
         hasSeededInitialConversationRoute = true
         navigationPath.append(.sessions(serverId: server.id, title: server.displayName))
+    }
+
+    private func openWorkspaceSessions(_ workspace: HomeDashboardWorkspace) {
+        switch workspace.kind {
+        case .dexDesktop:
+            guard !workspace.servers.isEmpty else {
+                appState.showConnectionPicker = true
+                return
+            }
+            appState.sessionsSelectedServerFilterId = nil
+            appState.sessionsShowOnlyForks = false
+            hasSeededInitialConversationRoute = true
+            navigationPath.append(.workspaceSessions(title: workspace.title))
+        case .phone:
+            if let localServer = workspace.servers.first(where: \.isLocal) ?? workspace.servers.first {
+                openServerSessions(localServer)
+            } else {
+                handleNewSessionTap()
+            }
+        }
+    }
+
+    private func disconnectLegacyServer(_ serverId: String) {
+        SavedServerStore.remove(serverId: serverId)
+        Task { await SshSessionStore.shared.close(serverId: serverId, ssh: appModel.ssh) }
+        appModel.serverBridge.disconnectServer(serverId: serverId)
+    }
+
+    private func renameLegacyServer(serverId: String, newName: String) {
+        SavedServerStore.rename(serverId: serverId, newName: newName)
+        appModel.reconnectController.syncSavedServers(
+            servers: SavedServerStore.reconnectRecords(
+                localDisplayName: appModel.resolvedLocalServerDisplayName()
+            )
+        )
+        appModel.store.renameServer(serverId: serverId, displayName: newName)
+    }
+
+    private func forgetDexDesktop(serverId: String) {
+        guard let environmentId = DexDesktopRouting.environmentId(fromServerId: serverId) else {
+            return
+        }
+        DexDesktopSessionStore.remove(environmentId: environmentId)
+        appModel.clearDexEnvironmentStateLocally(environmentId: environmentId)
+        DexDesktopDashboardService.shared.refresh()
     }
 
     private func openRecentSession(_ thread: HomeDashboardRecentSession) async {

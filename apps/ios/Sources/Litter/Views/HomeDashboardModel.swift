@@ -11,6 +11,8 @@ final class HomeDashboardModel {
 
     private(set) var connectedServers: [HomeDashboardServer] = []
     private(set) var recentSessions: [HomeDashboardRecentSession] = []
+    private(set) var workspaces: [HomeDashboardWorkspace] = []
+    private(set) var dexDesktopConnectionNotice: DexDesktopConnectionNotice?
 
     @ObservationIgnored private weak var appModel: AppModel?
     @ObservationIgnored private let dexDashboardService = DexDesktopDashboardService.shared
@@ -94,6 +96,7 @@ final class HomeDashboardModel {
         let generation = dexObservationGeneration
         let snapshot = withObservationTracking {
             let dexSnapshot = dexDashboardService.snapshot
+            _ = dexDashboardService.latestConnectionNotice
             return Snapshot(
                 connectedServers: dexSnapshot.connectedServers,
                 recentSessions: Array(dexSnapshot.recentSessions.prefix(10))
@@ -120,6 +123,12 @@ final class HomeDashboardModel {
             native: nativeSnapshot.recentSessions,
             dexCompanion: dexSnapshot.recentSessions
         )
+        workspaces = HomeDashboardSupport.buildWorkspaces(
+            connectedServers: connectedServers,
+            recentSessions: recentSessions,
+            hasSavedDexDesktop: !DexDesktopSessionStore.load().isEmpty
+        )
+        dexDesktopConnectionNotice = dexDashboardService.latestConnectionNotice
     }
 
     private func activateDexDashboardConsumerIfNeeded() {

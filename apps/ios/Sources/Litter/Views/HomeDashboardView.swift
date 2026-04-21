@@ -1,12 +1,15 @@
 import SwiftUI
 
 struct HomeDashboardView: View {
+    let workspaces: [HomeDashboardWorkspace]
     let recentSessions: [HomeDashboardRecentSession]
     let connectedServers: [HomeDashboardServer]
+    let dexDesktopConnectionNotice: DexDesktopConnectionNotice?
     let openingRecentSessionKey: ThreadKey?
     let isStartingNewSession: Bool
     let onOpenRecentSession: @MainActor (HomeDashboardRecentSession) async -> Void
     let onOpenServerSessions: (HomeDashboardServer) -> Void
+    let onOpenWorkspaceSessions: (HomeDashboardWorkspace) -> Void
     let onNewSession: () -> Void
     let onOpenConnectionPicker: () -> Void
     let onShowSettings: () -> Void
@@ -20,6 +23,7 @@ struct HomeDashboardView: View {
     @State private var disconnectTargetServer: HomeDashboardServer?
     @State private var renameTargetServer: HomeDashboardServer?
     @State private var renameText = ""
+    @State private var dismissedNoticeId: String?
 
     private var allConnectedAreDexCompanion: Bool {
         !connectedServers.isEmpty && connectedServers.allSatisfy(\.isDexCompanion)
@@ -49,9 +53,10 @@ struct HomeDashboardView: View {
             let recentLimit = max(3, Int((geo.size.height - 300) / 82))
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    recentSessionsSection(limit: recentLimit)
-                    connectedServersSection
+                    workspacesSection(recentLimit: recentLimit)
                     if DebugSettings.shared.enabled {
+                        recentSessionsSection(limit: recentLimit)
+                        connectedServersSection
                         recordingsSection
                     }
                 }
@@ -140,6 +145,57 @@ struct HomeDashboardView: View {
                     .foregroundColor(LitterTheme.textMuted.opacity(0.8))
                     .padding(.bottom, 2)
                     .ignoresSafeArea(.container, edges: .bottom)
+            }
+        }
+    }
+
+    private var visibleConnectionNotice: DexDesktopConnectionNotice? {
+        guard let dexDesktopConnectionNotice,
+              dexDesktopConnectionNotice.id != dismissedNoticeId else {
+            return nil
+        }
+        return dexDesktopConnectionNotice
+    }
+
+    private func workspacesSection(recentLimit: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(
+                title: "Workspaces",
+                buttonTitle: connectMacButtonTitle,
+                systemImage: "desktopcomputer",
+                action: onOpenConnectionPicker
+            )
+
+            if let notice = visibleConnectionNotice {
+                connectionNoticeCard(notice)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(workspaces) { workspace in
+                    Button {
+                        onOpenWorkspaceSessions(workspace)
+                    } label: {
+                        workspaceCard(workspace)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(workspace.isDexDesktop && workspace.servers.isEmpty)
+                    .contextMenu {
+                        if workspace.isDexDesktop, let firstServer = workspace.servers.first {
+                            Button(role: .destructive) {
+                                disconnectTargetServer = firstServer
+                            } label: {
+                                Label("Forget Desktop", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+
+            if workspaces.count == 1 {
+                emptyStateCard(
+                    title: "Pair your Mac workspace",
+                    message: "Pair Dex on your Mac and this page will reconnect automatically, then show recent projects and threads here."
+                )
             }
         }
     }
@@ -317,6 +373,129 @@ struct HomeDashboardView: View {
             }
         }
         .accessibilityIdentifier("home.recentSessionCard")
+    }
+
+    private func workspaceCard(_ workspace: HomeDashboardWorkspace) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: workspace.icon)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(workspace.statusColor)
+                    .frame(width: 28, height: 28)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(workspace.title)
+                        .litterFont(.subheadline, weight: .semibold)
+                        .foregroundColor(LitterTheme.textPrimary)
+                    Text(workspace.subtitle)
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textMuted)
+                }
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(workspace.statusColor)
+                        .frame(width: 8, height: 8)
+                    Text(workspace.statusLabel)
+                        .litterFont(.caption)
+                        .foregroundColor(LitterTheme.textMuted)
+                }
+            }
+
+            if !workspace.recentProjects.isEmpty {
+                previewRow(
+                    icon: "folder",
+                    title: "Projects",
+                    values: workspace.recentProjects,
+                    limit: 5
+                )
+            }
+
+            if !workspace.recentThreads.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Recent threads")
+                        .litterFont(.caption, weight: .semibold)
+                        .foregroundColor(LitterTheme.textSecondary)
+
+                    ForEach(workspace.recentThreads.prefix(3)) { thread in
+                        HStack(spacing: 8) {
+                            Image(systemName: thread.hasTurnActive ? "sparkles" : "text.bubble")
+                                .foregroundColor(thread.hasTurnActive ? LitterTheme.accent : LitterTheme.textMuted)
+                                .frame(width: 16)
+                            Text(thread.sessionTitle)
+                                .litterFont(.caption)
+                                .foregroundColor(LitterTheme.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: 0)
+                            Text(relativeDate(Int64(thread.updatedAt.timeIntervalSince1970)))
+                                .litterFont(.caption2)
+                                .foregroundColor(LitterTheme.textMuted)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .background(LitterTheme.surface.opacity(0.58))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(LitterTheme.border.opacity(0.65), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .accessibilityIdentifier("home.workspaceCard.\(workspace.id)")
+    }
+
+    private func previewRow(icon: String, title: String, values: [String], limit: Int) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .foregroundColor(LitterTheme.textMuted)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .litterFont(.caption, weight: .semibold)
+                    .foregroundColor(LitterTheme.textSecondary)
+                Text(values.prefix(limit).joined(separator: ", "))
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textMuted)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private func connectionNoticeCard(_ notice: DexDesktopConnectionNotice) -> some View {
+        let isFailure = notice.kind == .failed
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: isFailure ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundColor(isFailure ? LitterTheme.warning : LitterTheme.accent)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(notice.title)
+                    .litterFont(.caption, weight: .semibold)
+                    .foregroundColor(LitterTheme.textPrimary)
+                Text(notice.message)
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Button {
+                dismissedNoticeId = notice.id
+            } label: {
+                Image(systemName: "xmark")
+                    .litterFont(.caption, weight: .semibold)
+                    .foregroundColor(LitterTheme.textMuted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background((isFailure ? LitterTheme.warning : LitterTheme.accent).opacity(0.1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke((isFailure ? LitterTheme.warning : LitterTheme.accent).opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private func connectedServerRow(_ server: HomeDashboardServer) -> some View {

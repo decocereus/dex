@@ -1,16 +1,31 @@
 import Foundation
 import Observation
 
+struct DexDesktopConnectionNotice: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case connected
+        case failed
+    }
+
+    let id: String
+    let kind: Kind
+    let title: String
+    let message: String
+    let environmentId: String
+}
+
 @MainActor
 @Observable
 final class DexDesktopDashboardService {
     static let shared = DexDesktopDashboardService()
 
     private(set) var snapshot: DexDesktopDashboardIndex.Snapshot = .empty
+    private(set) var latestConnectionNotice: DexDesktopConnectionNotice?
 
     @ObservationIgnored private var consumerCount = 0
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var environmentSnapshots: [String: DexDesktopDashboardIndex.Snapshot] = [:]
+    @ObservationIgnored private var connectedEnvironmentIds: Set<String> = []
     @ObservationIgnored private var sessionsObserver: NSObjectProtocol?
 
     init() {
@@ -46,6 +61,7 @@ final class DexDesktopDashboardService {
         streamTask?.cancel()
         streamTask = nil
         environmentSnapshots.removeAll()
+        connectedEnvironmentIds.removeAll()
     }
 
     func refresh() {
@@ -104,10 +120,14 @@ final class DexDesktopDashboardService {
                                             Array(self.environmentSnapshots.values),
                                             limit: 200
                                         )
+                                        self.markConnected(savedSession)
                                     }
                                 }
                             } catch {
                                 guard !Task.isCancelled else { return }
+                                await MainActor.run {
+                                    self.markConnectionFailed(savedSession, error: error)
+                                }
                             }
                         }
                     }
@@ -129,6 +149,30 @@ final class DexDesktopDashboardService {
         streamTask = nil
         refresh()
         startStreaming()
+    }
+
+    private func markConnected(_ session: DexDesktopSavedSession) {
+        let wasConnected = connectedEnvironmentIds.contains(session.environmentId)
+        connectedEnvironmentIds.insert(session.environmentId)
+        guard !wasConnected else { return }
+        latestConnectionNotice = DexDesktopConnectionNotice(
+            id: "\(session.environmentId)-connected-\(Date().timeIntervalSince1970)",
+            kind: .connected,
+            title: "Mac workspace connected",
+            message: "\(session.serverLabel) is back online and your projects are syncing.",
+            environmentId: session.environmentId
+        )
+    }
+
+    private func markConnectionFailed(_ session: DexDesktopSavedSession, error: Error) {
+        connectedEnvironmentIds.remove(session.environmentId)
+        latestConnectionNotice = DexDesktopConnectionNotice(
+            id: "\(session.environmentId)-failed-\(Date().timeIntervalSince1970)",
+            kind: .failed,
+            title: "Could not reach Mac workspace",
+            message: "Open Dex on \(session.serverLabel), make sure phone access is enabled, and keep both devices on the same network. \(error.localizedDescription)",
+            environmentId: session.environmentId
+        )
     }
 }
 

@@ -66,6 +66,27 @@ struct HomeDashboardServer: Identifiable, Equatable {
     }
 }
 
+enum HomeDashboardWorkspaceKind: String, Hashable {
+    case phone
+    case dexDesktop
+}
+
+struct HomeDashboardWorkspace: Identifiable, Equatable {
+    let id: String
+    let kind: HomeDashboardWorkspaceKind
+    let title: String
+    let subtitle: String
+    let statusLabel: String
+    let statusColor: Color
+    let icon: String
+    let servers: [HomeDashboardServer]
+    let recentProjects: [String]
+    let recentThreads: [HomeDashboardRecentSession]
+    let hasPairedDesktop: Bool
+
+    var isDexDesktop: Bool { kind == .dexDesktop }
+}
+
 @MainActor
 enum HomeDashboardSupport {
     static func recentConnectedSessions(
@@ -205,7 +226,71 @@ enum HomeDashboardSupport {
         )
     }
 
+    nonisolated static func buildWorkspaces(
+        connectedServers: [HomeDashboardServer],
+        recentSessions: [HomeDashboardRecentSession],
+        hasSavedDexDesktop: Bool
+    ) -> [HomeDashboardWorkspace] {
+        let dexServers = connectedServers.filter(\.isDexCompanion)
+        let phoneServers = connectedServers.filter { !$0.isDexCompanion }
+        let dexThreads = recentSessions.filter(\.isDexCompanion)
+        let phoneThreads = recentSessions.filter { !$0.isDexCompanion }
+
+        let phoneWorkspace = HomeDashboardWorkspace(
+            id: "phone",
+            kind: .phone,
+            title: "Phone",
+            subtitle: phoneServers.isEmpty
+                ? "Local iPhone workspace"
+                : workspaceSummary(projectCount: phoneServers.count, threadCount: phoneThreads.count),
+            statusLabel: phoneServers.isEmpty ? "Local" : "Ready",
+            statusColor: phoneServers.isEmpty ? LitterTheme.textMuted : LitterTheme.accent,
+            icon: "iphone",
+            servers: phoneServers,
+            recentProjects: Array(phoneServers.map(\.displayName).prefix(5)),
+            recentThreads: Array(phoneThreads.prefix(3)),
+            hasPairedDesktop: false
+        )
+
+        var workspaces = [phoneWorkspace]
+        if hasSavedDexDesktop || !dexServers.isEmpty || !dexThreads.isEmpty {
+            let desktopLabel = dexServers.first?.sourceLabel.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let title = desktopLabel.isEmpty ? "Mac" : desktopLabel
+            let projectNames = Array(
+                dexServers
+                    .map { $0.projectName ?? $0.displayName }
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .prefix(5)
+            )
+            workspaces.append(
+                HomeDashboardWorkspace(
+                    id: "mac",
+                    kind: .dexDesktop,
+                    title: title,
+                    subtitle: dexServers.isEmpty
+                        ? "Trying to reconnect to your paired Dex desktop"
+                        : workspaceSummary(projectCount: dexServers.count, threadCount: dexThreads.count),
+                    statusLabel: dexServers.isEmpty ? "Reconnecting" : "Connected",
+                    statusColor: dexServers.isEmpty ? LitterTheme.warning : LitterTheme.accent,
+                    icon: "desktopcomputer",
+                    servers: dexServers,
+                    recentProjects: projectNames,
+                    recentThreads: Array(dexThreads.prefix(3)),
+                    hasPairedDesktop: true
+                )
+            )
+        }
+
+        return workspaces
+    }
+
     private static func sessionTitle(for session: AppSessionSummary) -> String {
         session.displayTitle
+    }
+
+    private nonisolated static func workspaceSummary(projectCount: Int, threadCount: Int) -> String {
+        let projectLabel = projectCount == 1 ? "1 project" : "\(projectCount) projects"
+        let threadLabel = threadCount == 1 ? "1 recent thread" : "\(threadCount) recent threads"
+        return "\(projectLabel) · \(threadLabel)"
     }
 }
