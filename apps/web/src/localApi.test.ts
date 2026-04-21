@@ -494,6 +494,7 @@ describe("wsApi", () => {
       confirmThreadDelete: false,
       diffWordWrap: true,
       sidebarProjectSortOrder: "manual",
+      sidebarSide: "right",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
     });
@@ -524,6 +525,7 @@ describe("wsApi", () => {
       interfaceFontFamily: "geist-sans",
       monoFontFamily: "jetbrains-mono",
       sidebarProjectSortOrder: "manual",
+      sidebarSide: "right",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
     });
@@ -544,6 +546,7 @@ describe("wsApi", () => {
       interfaceFontFamily: "geist-sans",
       monoFontFamily: "jetbrains-mono",
       sidebarProjectSortOrder: "manual",
+      sidebarSide: "right",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
     });
@@ -565,6 +568,7 @@ describe("wsApi", () => {
       interfaceFontFamily: "geist-sans",
       monoFontFamily: "jetbrains-mono",
       sidebarProjectSortOrder: "manual",
+      sidebarSide: "right",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
     });
@@ -590,6 +594,7 @@ describe("wsApi", () => {
       interfaceFontFamily: "geist-sans",
       monoFontFamily: "jetbrains-mono",
       sidebarProjectSortOrder: "manual",
+      sidebarSide: "right",
       sidebarThreadSortOrder: "created_at",
       timestampFormat: "24-hour",
     });

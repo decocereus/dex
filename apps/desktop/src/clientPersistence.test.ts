@@ -55,6 +55,7 @@ const clientSettings: ClientSettings = {
   interfaceFontFamily: "geist-sans",
   monoFontFamily: "jetbrains-mono",
   sidebarProjectSortOrder: "manual",
+  sidebarSide: "right",
   sidebarThreadSortOrder: "created_at",
   timestampFormat: "24-hour",
 };
@@ -75,6 +76,36 @@ describe("clientPersistence", () => {
     writeClientSettings(settingsPath, clientSettings);
 
     expect(readClientSettings(settingsPath)).toEqual(clientSettings);
+  });
+
+  it("fills defaults when reading legacy partial client settings", () => {
+    const settingsPath = makeTempPath("client-settings.json");
+    fs.writeFileSync(
+      settingsPath,
+      `${JSON.stringify({
+        settings: {
+          confirmThreadArchive: false,
+          confirmThreadDelete: true,
+          diffWordWrap: false,
+          sidebarProjectSortOrder: "manual",
+          sidebarThreadSortOrder: "created_at",
+          timestampFormat: "12-hour",
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    expect(readClientSettings(settingsPath)).toEqual({
+      confirmThreadArchive: false,
+      confirmThreadDelete: true,
+      diffWordWrap: false,
+      interfaceFontFamily: "dm-sans",
+      monoFontFamily: "sf-mono",
+      sidebarProjectSortOrder: "manual",
+      sidebarSide: "left",
+      sidebarThreadSortOrder: "created_at",
+      timestampFormat: "12-hour",
+    });
   });
 
   it("persists and reloads saved environment metadata", () => {

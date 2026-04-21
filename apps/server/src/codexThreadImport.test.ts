@@ -8,6 +8,7 @@ import {
   extractCodexImportActivities,
   extractCodexImportMessages,
   importCodexThreads,
+  loadPersistedCodexThreadsFromRpcClient,
   type CodexPersistedThread,
 } from "./codexThreadImport";
 import type { ProviderRuntimeBinding } from "./provider/Services/ProviderSessionDirectory";
@@ -117,6 +118,65 @@ describe("extractCodexImportActivities", () => {
 });
 
 describe("importCodexThreads", () => {
+  it("keeps syncing when a listed thread cannot be read back from Codex", async () => {
+    const listCalls: Array<{ archived: boolean; cursor: string | null }> = [];
+    const threads = await loadPersistedCodexThreadsFromRpcClient({
+      request: async (method, params) => {
+        if (method === "thread/list") {
+          const archived = (params as { archived?: boolean }).archived === true;
+          listCalls.push({
+            archived,
+            cursor: ((params as { cursor?: string | null }).cursor ?? null) as string | null,
+          });
+          return archived
+            ? {
+                data: [
+                  {
+                    id: "thr_archived",
+                    preview: "Archived preview",
+                    createdAt: 1_726_000_000,
+                    updatedAt: 1_726_000_100,
+                    cwd: "/repo/archived",
+                    cliVersion: "0.118.0",
+                    name: "Archived thread",
+                    gitInfo: { branch: "main" },
+                    ephemeral: false,
+                  },
+                ],
+                nextCursor: null,
+              }
+            : { data: [], nextCursor: null };
+        }
+
+        if (method === "thread/read") {
+          throw new Error("thread not loaded: thr_archived");
+        }
+
+        throw new Error(`unexpected method: ${method}`);
+      },
+    });
+
+    expect(listCalls).toEqual([
+      { archived: false, cursor: null },
+      { archived: true, cursor: null },
+    ]);
+    expect(threads).toEqual([
+      {
+        providerThreadId: "thr_archived",
+        preview: "Archived preview",
+        createdAt: "2024-09-10T20:26:40.000Z",
+        updatedAt: "2024-09-10T20:28:20.000Z",
+        cwd: "/repo/archived",
+        cliVersion: "0.118.0",
+        name: "Archived thread",
+        branch: "main",
+        archived: true,
+        ephemeral: false,
+        turns: [],
+      },
+    ]);
+  });
+
   it("creates projects, threads, messages, activities, and provider bindings from persisted Codex history", async () => {
     const dispatchedCommands: OrchestrationCommand[] = [];
     const providerBindings: ProviderRuntimeBinding[] = [];

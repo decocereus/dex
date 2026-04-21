@@ -23,6 +23,10 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
+export const SidebarSide = Schema.Literals(["left", "right"]);
+export type SidebarSide = typeof SidebarSide.Type;
+export const DEFAULT_SIDEBAR_SIDE: SidebarSide = "left";
+
 export const InterfaceFontFamily = Schema.Literals(["dm-sans", "geist-sans", "system"]);
 export type InterfaceFontFamily = typeof InterfaceFontFamily.Type;
 export const DEFAULT_INTERFACE_FONT_FAMILY: InterfaceFontFamily = "dm-sans";
@@ -49,6 +53,7 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),
+  sidebarSide: SidebarSide.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_SIDE))),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
   ),

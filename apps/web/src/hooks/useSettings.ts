@@ -12,11 +12,13 @@
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { ServerSettings, ServerSettingsPatch } from "@dex/contracts";
 import {
+  ClientSettingsSchema,
   type ClientSettings,
   DEFAULT_CLIENT_SETTINGS,
   DEFAULT_UNIFIED_SETTINGS,
   UnifiedSettings,
 } from "@dex/contracts/settings";
+import * as Schema from "effect/Schema";
 import { ensureLocalApi } from "~/localApi";
 import { Struct } from "effect";
 import { deepMerge } from "@dex/shared/Struct";
@@ -44,6 +46,14 @@ function replaceClientSettingsSnapshot(settings: ClientSettings): void {
   emitClientSettingsChange();
 }
 
+function parseClientSettings(value: unknown): ClientSettings | null {
+  try {
+    return Schema.decodeUnknownSync(ClientSettingsSchema)(value);
+  } catch {
+    return null;
+  }
+}
+
 function subscribeClientSettings(listener: () => void): () => void {
   clientSettingsListeners.add(listener);
   void hydrateClientSettings();
@@ -63,8 +73,9 @@ async function hydrateClientSettings(): Promise<void> {
   const nextHydration = (async () => {
     try {
       const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
-      if (persistedSettings) {
-        replaceClientSettingsSnapshot(persistedSettings);
+      const parsedSettings = parseClientSettings(persistedSettings);
+      if (parsedSettings) {
+        replaceClientSettingsSnapshot(parsedSettings);
       }
     } catch (error) {
       console.error(`${CLIENT_SETTINGS_PERSISTENCE_ERROR_SCOPE} hydrate failed`, error);

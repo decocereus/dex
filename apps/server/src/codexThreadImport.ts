@@ -94,6 +94,7 @@ interface CodexThreadSummary {
   readonly preview: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly path: string | null;
   readonly cwd: string;
   readonly cliVersion: string | null;
   readonly name: string | null;
@@ -1021,6 +1022,7 @@ function parseThreadSummary(value: unknown, archived: boolean): CodexThreadSumma
     preview: readString(record?.preview) ?? "",
     createdAt: unixSecondsToIso(readNumber(record?.createdAt)),
     updatedAt: unixSecondsToIso(readNumber(record?.updatedAt)),
+    path: nonEmptyTrimmed(record?.path) ?? null,
     cwd,
     cliVersion: nonEmptyTrimmed(record?.cliVersion) ?? null,
     name: nonEmptyTrimmed(record?.name) ?? null,
@@ -1046,41 +1048,38 @@ function parseThreadTurns(
   });
 }
 
-export async function loadPersistedCodexThreads(input: {
-  readonly binaryPath: string;
-  readonly homePath?: string;
-}): Promise<ReadonlyArray<CodexPersistedThread>> {
-  return withCodexRpcClient(input, async (client) => {
-    const summariesById = new Map<string, CodexThreadSummary>();
-    for (const archived of [false, true] as const) {
-      let cursor: string | null = null;
-      do {
-        const result = await client.request("thread/list", {
-          cursor,
-          limit: THREAD_LIST_PAGE_SIZE,
-          sortKey: "updated_at",
-          archived,
-          sourceKinds: [...ALL_THREAD_SOURCE_KINDS],
-        });
-        const response = isRecord(result) ? result : {};
-        const page = readArray(response.data).flatMap((entry) => {
-          const summary = parseThreadSummary(entry, archived);
-          if (!summary || summary.ephemeral) {
-            return [];
-          }
-          return [summary];
-        });
-        for (const summary of page) {
-          summariesById.set(summary.id, summary);
+export async function loadPersistedCodexThreadsFromRpcClient(
+  client: CodexRpcClient,
+): Promise<ReadonlyArray<CodexPersistedThread>> {
+  const summariesById = new Map<string, CodexThreadSummary>();
+  for (const archived of [false, true] as const) {
+    let cursor: string | null = null;
+    do {
+      const result = await client.request("thread/list", {
+        cursor,
+        limit: THREAD_LIST_PAGE_SIZE,
+        sortKey: "updated_at",
+        archived,
+        sourceKinds: [...ALL_THREAD_SOURCE_KINDS],
+      });
+      const response = isRecord(result) ? result : {};
+      const page = readArray(response.data).flatMap((entry) => {
+        const summary = parseThreadSummary(entry, archived);
+        if (!summary || summary.ephemeral) {
+          return [];
         }
-        cursor = nonEmptyTrimmed(response.nextCursor) ?? null;
-      } while (cursor !== null);
-    }
+        return [summary];
+      });
+      for (const summary of page) {
+        summariesById.set(summary.id, summary);
+      }
+      cursor = nonEmptyTrimmed(response.nextCursor) ?? null;
+    } while (cursor !== null);
+  }
 
-    const summaries = [...summariesById.values()];
-
-    const threads: CodexPersistedThread[] = [];
-    for (const summary of summaries) {
+  const threads: CodexPersistedThread[] = [];
+  for (const summary of summariesById.values()) {
+    try {
       const readResult = await client.request("thread/read", {
         threadId: summary.id,
         includeTurns: true,
@@ -1098,10 +1097,34 @@ export async function loadPersistedCodexThreads(input: {
         ephemeral: summary.ephemeral,
         turns: parseThreadTurns(summary.id, readResult),
       });
+    } catch {
+      // Codex can list stored threads that `thread/read` refuses to materialize
+      // (for example some archived sessions). Keep the shell thread so sync can
+      // still progress instead of failing all remaining imports.
+      threads.push({
+        providerThreadId: summary.id,
+        preview: summary.preview,
+        createdAt: summary.createdAt,
+        updatedAt: summary.updatedAt,
+        cwd: summary.cwd,
+        cliVersion: summary.cliVersion,
+        name: summary.name,
+        branch: summary.branch,
+        archived: summary.archived,
+        ephemeral: summary.ephemeral,
+        turns: [],
+      });
     }
+  }
 
-    return threads;
-  });
+  return threads;
+}
+
+export async function loadPersistedCodexThreads(input: {
+  readonly binaryPath: string;
+  readonly homePath?: string;
+}): Promise<ReadonlyArray<CodexPersistedThread>> {
+  return withCodexRpcClient(input, (client) => loadPersistedCodexThreadsFromRpcClient(client));
 }
 
 export function importCodexThreads(

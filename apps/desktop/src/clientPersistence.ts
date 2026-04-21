@@ -1,8 +1,13 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
-import type { ClientSettings, PersistedSavedEnvironmentRecord } from "@dex/contracts";
+import {
+  ClientSettingsSchema,
+  type ClientSettings,
+  type PersistedSavedEnvironmentRecord,
+} from "@dex/contracts";
 import { Predicate } from "effect";
+import * as Schema from "effect/Schema";
 
 interface ClientSettingsDocument {
   readonly settings: ClientSettings;
@@ -39,6 +44,14 @@ function writeJsonFile(filePath: string, value: unknown): void {
   FS.mkdirSync(directory, { recursive: true });
   FS.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   FS.renameSync(tempPath, filePath);
+}
+
+function parseClientSettings(value: unknown): ClientSettings | null {
+  try {
+    return Schema.decodeUnknownSync(ClientSettingsSchema)(value);
+  } catch {
+    return null;
+  }
 }
 
 function isPersistedSavedEnvironmentStorageRecord(
@@ -83,7 +96,8 @@ function toPersistedSavedEnvironmentRecord(
 }
 
 export function readClientSettings(settingsPath: string): ClientSettings | null {
-  return readJsonFile<ClientSettingsDocument>(settingsPath)?.settings ?? null;
+  const document = readJsonFile<ClientSettingsDocument>(settingsPath);
+  return Predicate.isObject(document) ? parseClientSettings(document.settings) : null;
 }
 
 export function writeClientSettings(settingsPath: string, settings: ClientSettings): void {

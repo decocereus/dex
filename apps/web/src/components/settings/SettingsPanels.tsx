@@ -21,9 +21,11 @@ import { scopeThreadRef } from "@dex/client-runtime";
 import {
   DEFAULT_INTERFACE_FONT_FAMILY,
   DEFAULT_MONO_FONT_FAMILY,
+  DEFAULT_SIDEBAR_SIDE,
   DEFAULT_UNIFIED_SETTINGS,
   type InterfaceFontFamily,
   type MonoFontFamily,
+  type SidebarSide,
 } from "@dex/contracts/settings";
 import { normalizeModelSlug } from "@dex/shared/model";
 import { Equal } from "effect";
@@ -122,6 +124,11 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const SIDEBAR_SIDE_LABELS: Record<SidebarSide, string> = {
+  left: "Left",
+  right: "Right",
+};
 
 type InstallProviderSettings = {
   provider: ProviderKind;
@@ -397,6 +404,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
+      ...(settings.sidebarSide !== DEFAULT_UNIFIED_SETTINGS.sidebarSide
+        ? ["Sidebar placement"]
+        : []),
       ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
         ? ["Diff line wrapping"]
         : []),
@@ -425,6 +435,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.enableAssistantStreaming,
       settings.interfaceFontFamily,
       settings.monoFontFamily,
+      settings.sidebarSide,
       settings.timestampFormat,
       theme,
     ],
@@ -868,6 +879,45 @@ export function GeneralSettingsPanel() {
                 </SelectItem>
                 <SelectItem hideIndicator value="24-hour">
                   {TIMESTAMP_FORMAT_LABELS["24-hour"]}
+                </SelectItem>
+              </SelectPopup>
+            </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Sidebar placement"
+          description="Choose whether the main app sidebar stays on the left or moves to the right."
+          resetAction={
+            settings.sidebarSide !== DEFAULT_SIDEBAR_SIDE ? (
+              <SettingResetButton
+                label="sidebar placement"
+                onClick={() =>
+                  updateSettings({
+                    sidebarSide: DEFAULT_SIDEBAR_SIDE,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.sidebarSide}
+              onValueChange={(value) => {
+                if (value === "left" || value === "right") {
+                  updateSettings({ sidebarSide: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Sidebar placement">
+                <SelectValue>{SIDEBAR_SIDE_LABELS[settings.sidebarSide]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="left">
+                  {SIDEBAR_SIDE_LABELS.left}
+                </SelectItem>
+                <SelectItem hideIndicator value="right">
+                  {SIDEBAR_SIDE_LABELS.right}
                 </SelectItem>
               </SelectPopup>
             </Select>
