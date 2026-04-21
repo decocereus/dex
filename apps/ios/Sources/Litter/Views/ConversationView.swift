@@ -1293,6 +1293,7 @@ private struct ConversationInputBar: View {
     @State private var hasLoggedFirstFocus = false
     @State private var hasLoggedKeyboardShown = false
     @State private var isComposerFocused = false
+    @State private var sendingPromptPreview: String?
 
     private var pendingUserInputRequest: PendingUserInputRequest? {
         snapshot.pendingUserInputRequest
@@ -1379,6 +1380,11 @@ private struct ConversationInputBar: View {
             hideComposerPopups()
             appModel.clearComposerPrefill(id: prefill.id)
         }
+        .onChange(of: snapshot.activeTurnId) { _, activeTurnId in
+            if activeTurnId != nil {
+                sendingPromptPreview = nil
+            }
+        }
         .onChange(of: isComposerFocused) { _, focused in
             if focused {
                 guard !hasLoggedFirstFocus else { return }
@@ -1402,6 +1408,12 @@ private struct ConversationInputBar: View {
 
     private var composerSurface: some View {
         VStack(spacing: 0) {
+            if let sendingPromptPreview {
+                SendingPromptStatusView(text: sendingPromptPreview)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             ConversationComposerContentView(
                 attachedImage: attachedImage,
                 collaborationMode: snapshot.collaborationMode,
@@ -1520,6 +1532,7 @@ private struct ConversationInputBar: View {
         hideComposerPopups()
         isComposerFocused = false
         let skillMentions = collectSkillMentionsForSubmission(text)
+        sendingPromptPreview = text
         onSend(text, image, skillMentions)
     }
 
@@ -1676,6 +1689,7 @@ private struct ConversationInputBar: View {
 
     private func scheduleComposerPopupRefresh(for nextText: String) {
         popupRefreshTask?.cancel()
+        let isLargeDraft = nextText.utf8.count > 4_000
         let needsPopupEvaluation =
             showSlashPopup ||
             showFilePopup ||
@@ -1683,9 +1697,11 @@ private struct ConversationInputBar: View {
             activeSlashToken != nil ||
             activeAtToken != nil ||
             activeDollarToken != nil ||
-            nextText.contains("/") ||
-            nextText.contains("@") ||
-            nextText.contains("$")
+            (!isLargeDraft && (
+                nextText.contains("/") ||
+                    nextText.contains("@") ||
+                    nextText.contains("$")
+            ))
 
         guard needsPopupEvaluation else {
             hideComposerPopups()
@@ -2095,6 +2111,7 @@ private struct ConversationInputBar: View {
 
     private func collectSkillMentionsForSubmission(_ text: String) -> [SkillMentionSelection] {
         guard !skills.isEmpty else { return [] }
+        guard text.utf8.contains(kDollarSign) else { return [] }
         let mentionNames = extractMentionNames(text)
         guard !mentionNames.isEmpty else { return [] }
 

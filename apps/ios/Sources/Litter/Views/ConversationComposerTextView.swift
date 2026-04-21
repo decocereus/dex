@@ -65,6 +65,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
         var isSynchronizingText = false
         private var requestedFocusState: Bool?
         private var focusSyncWorkItem: DispatchWorkItem?
+        private var scrollStateWorkItem: DispatchWorkItem?
 
         init(_ parent: ConversationComposerTextView) {
             self.parent = parent
@@ -84,7 +85,7 @@ struct ConversationComposerTextView: UIViewRepresentable {
             if parent.text != updatedText {
                 parent.text = updatedText
             }
-            updateScrollState(for: textView)
+            scheduleScrollStateUpdate(for: textView, textLength: updatedText.utf8.count)
         }
 
         func syncFocus(for textView: UITextView) {
@@ -128,6 +129,22 @@ struct ConversationComposerTextView: UIViewRepresentable {
             if textView.isScrollEnabled != shouldScroll {
                 textView.isScrollEnabled = shouldScroll
             }
+        }
+
+        private func scheduleScrollStateUpdate(for textView: UITextView, textLength: Int) {
+            scrollStateWorkItem?.cancel()
+            guard textLength > 2_000 else {
+                updateScrollState(for: textView)
+                return
+            }
+
+            let work = DispatchWorkItem { [weak self, weak textView] in
+                guard let self, let textView else { return }
+                self.scrollStateWorkItem = nil
+                self.updateScrollState(for: textView)
+            }
+            scrollStateWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
         }
 
         func minimumHeight(for textView: UITextView) -> CGFloat {

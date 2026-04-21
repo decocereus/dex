@@ -213,6 +213,47 @@ struct ConversationComposerModeChip: View {
     }
 }
 
+struct SendingPromptStatusView: View {
+    let text: String
+
+    private var preview: String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 140 else {
+            return trimmed
+        }
+        return "\(trimmed.prefix(140))..."
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+                .tint(LitterTheme.accent)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Sending prompt")
+                    .litterFont(.caption, weight: .semibold)
+                    .foregroundColor(LitterTheme.textPrimary)
+                Text(preview)
+                    .litterFont(.caption)
+                    .foregroundColor(LitterTheme.textMuted)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(LitterTheme.surface.opacity(0.82))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(LitterTheme.border.opacity(0.65), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+
 private struct ConversationComposerPlanProgressView: View {
     let progress: AppPlanProgressSnapshot
 

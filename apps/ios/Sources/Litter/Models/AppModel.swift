@@ -1704,7 +1704,9 @@ final class AppModel {
             runtimeMode: runtimeMode,
             interactionMode: interactionMode
         )
-        try await refreshDexThreadSnapshot(key: key)
+        Task { [weak self] in
+            try? await self?.refreshDexThreadSnapshot(key: key)
+        }
         LLog.info("dex-mobile", "dex turn started", fields: [
             "serverId": key.serverId,
             "threadId": key.threadId,
